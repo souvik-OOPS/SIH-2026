@@ -1,0 +1,32 @@
+{
+  "model": "MLP autoencoder",
+  "architecture": "60 -> 64 -> 16 -> 64 -> 60",
+  "parameters": 9932,
+  "features": [
+    "HR",
+    "SpO2"
+  ],
+  "window_seconds": 30,
+  "trained_on": "normal windows from training subjects only",
+  "threshold": 0.026883819510514072,
+  "threshold_selected_on": "validation subjects, at >=99% specificity",
+  "test": {
+    "roc_auc": 0.806592373791622,
+    "tp": 9,
+    "fp": 60,
+    "fn": 19,
+    "tn": 1004,
+    "precision": 0.13043478260869565,
+    "recall": 0.32142857142857145,
+    "f1": 0.18556701030927836,
+    "specificity": 0.943609022556391
+  },
+  "norm_mean": [
+    83.90068817138672,
+    97.38084411621094
+  ],
+  "norm_std": [
+    8.696126937866211,
+    2.28707218170166
+  ]
+}

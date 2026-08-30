@@ -1,0 +1,30 @@
+# ---- dependencies ----
+node_modules/
+
+# ---- secrets (never commit; .example files are the templates) ----
+.env
+.env.local
+*.env.local
+firmware/esp32_sensor_node/config.h
+
+# ---- build output ----
+.nuxt/
+.output/
+dist/
+.vite/
+
+# ---- python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- logs / os cruft ----
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+# ---- editor ----
+.vscode/
+.idea/

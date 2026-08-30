@@ -1,0 +1,22 @@
+{
+  "dataset": "BIDMC PPG and Respiration Dataset v1.0.0 (PhysioNet)",
+  "citation": "Pimentel et al., IEEE TBME 2017",
+  "features": [
+    "HR",
+    "SpO2"
+  ],
+  "window_seconds": 30,
+  "stride": 5,
+  "recordings_used": 53,
+  "windows_total": 4823,
+  "abnormal_total": 426,
+  "split": "subject-wise 60/20/20, seed 42",
+  "norm_mean": [
+    83.90068817138672,
+    97.38084411621094
+  ],
+  "norm_std": [
+    8.696126937866211,
+    2.28707218170166
+  ]
+}
