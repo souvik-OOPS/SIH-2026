@@ -1,46 +1,84 @@
 import 'dart:convert';
 
-/// Risk as decided by the application's safety engine — never by the LLM.
+/// Risk as decided by the application's RiskEngine — never by the LLM.
 ///
-/// [notComputed] is the honest default for this build: the Day 4-6 risk
-/// engine does not exist yet, so there is no authority to quote. The
-/// assistant must say "not computed" rather than guess a level.
-enum RiskLevel { notComputed, normal, caution, warning, critical }
+/// [notComputed] is the honest default for this build: the Day 4-6 RiskEngine
+/// does not exist yet, so there is no authority to quote. The assistant says
+/// "not computed" rather than inventing a level.
+enum RiskLevel { notComputed, normal, watch, act, emergency }
 
 extension RiskLevelLabel on RiskLevel {
+  /// The wire value handed to the model and shown in the UI.
   String get wireValue => switch (this) {
-    RiskLevel.notComputed => 'not_computed',
-    RiskLevel.normal => 'normal',
-    RiskLevel.caution => 'caution',
-    RiskLevel.warning => 'warning',
-    RiskLevel.critical => 'critical',
+    RiskLevel.notComputed => 'NOT_COMPUTED',
+    RiskLevel.normal => 'NORMAL',
+    RiskLevel.watch => 'WATCH',
+    RiskLevel.act => 'ACT',
+    RiskLevel.emergency => 'EMERGENCY',
   };
 
-  /// Drives the "never say a dangerous state is safe" rule in the prompt.
+  /// Drives the "never minimize a dangerous state" rules in the prompt.
   bool get isElevated =>
-      this == RiskLevel.warning || this == RiskLevel.critical;
+      this == RiskLevel.watch ||
+      this == RiskLevel.act ||
+      this == RiskLevel.emergency;
+
+  static RiskLevel fromWire(String value) => switch (value.toUpperCase()) {
+    'NORMAL' => RiskLevel.normal,
+    'WATCH' => RiskLevel.watch,
+    'ACT' => RiskLevel.act,
+    'EMERGENCY' => RiskLevel.emergency,
+    _ => RiskLevel.notComputed,
+  };
+}
+
+/// Languages the assistant answers in. Extensible: adding Bengali means
+/// adding an enum value, a prompt line, and translated knowledge rows —
+/// no engine or UI change.
+enum AssistantLanguage { english, hindi }
+
+extension AssistantLanguageInfo on AssistantLanguage {
+  /// Stored on knowledge rows and used to filter retrieval.
+  String get code => switch (this) {
+    AssistantLanguage.english => 'en',
+    AssistantLanguage.hindi => 'hi',
+  };
+
+  String get englishName => switch (this) {
+    AssistantLanguage.english => 'English',
+    AssistantLanguage.hindi => 'Hindi',
+  };
+
+  String get nativeName => switch (this) {
+    AssistantLanguage.english => 'English',
+    AssistantLanguage.hindi => 'हिंदी',
+  };
+
+  static AssistantLanguage fromCode(String code) =>
+      code.toLowerCase().startsWith('hi')
+      ? AssistantLanguage.hindi
+      : AssistantLanguage.english;
 }
 
 /// The interpreted snapshot the assistant is allowed to see.
 ///
 /// Deliberately NOT the raw telemetry stream: the assistant reads an
-/// already-decided summary, at low frequency, so it can never be in the
-/// position of interpreting sensor data itself.
-///
-/// Every field here is authoritative input to the model. The model's output
-/// is display text only and is never read back into application state.
+/// already-decided summary so it is never in the position of interpreting
+/// sensor data itself. Every field is authoritative *input*; the model's
+/// output is display text and is never read back into application state.
 class AssistantContext {
   const AssistantContext({
+    this.riskLevel = RiskLevel.notComputed,
     this.heartRate,
     this.spo2,
     this.temperature,
+    this.ambientTemperature,
     this.humidity,
-    this.motionMagnitudeG,
+    this.signalQuality = 'unknown',
     this.fallDetected = false,
     this.movementDetected,
-    this.signalQuality = 'unknown',
-    this.riskLevel = RiskLevel.notComputed,
-    this.activeWarnings = const [],
+    this.timeToThresholdMinutes,
+    this.reasons = const [],
     this.connectivity = 'unknown',
     this.dataIsStale = false,
     this.contactState = 'unknown',
@@ -49,41 +87,52 @@ class AssistantContext {
     this.sourceType = 'unknown',
   });
 
-  /// A context with no telemetry at all — BLE down, or nothing received yet.
+  /// No telemetry at all — BLE down, or nothing received yet.
   const AssistantContext.noTelemetry({
     this.connectivity = 'disconnected',
     this.sourceType = 'unknown',
-  }) : heartRate = null,
+  }) : riskLevel = RiskLevel.notComputed,
+       heartRate = null,
        spo2 = null,
        temperature = null,
+       ambientTemperature = null,
        humidity = null,
-       motionMagnitudeG = null,
+       signalQuality = 'unknown',
        fallDetected = false,
        movementDetected = null,
-       signalQuality = 'unknown',
-       riskLevel = RiskLevel.notComputed,
-       activeWarnings = const [],
+       timeToThresholdMinutes = null,
+       reasons = const [],
        dataIsStale = false,
        contactState = 'unknown',
        sosPressed = false,
        telemetryAvailable = false;
 
+  final RiskLevel riskLevel;
   final double? heartRate;
   final double? spo2;
 
-  /// Ambient air temperature in °C. Never body temperature — the sensor
-  /// measures the air around the wearer.
+  /// Body temperature in °C. Null on this hardware — no body-temperature
+  /// sensor is fitted — and reported as unavailable rather than substituted
+  /// with the ambient reading.
   final double? temperature;
-  final double? humidity;
-  final double? motionMagnitudeG;
 
-  final bool fallDetected;
-  final bool? movementDetected;
+  /// Ambient air temperature in °C, from the DHT22.
+  final double? ambientTemperature;
+  final double? humidity;
 
   /// One of: good, fair, poor, reacquiring, unknown.
   final String signalQuality;
-  final RiskLevel riskLevel;
-  final List<String> activeWarnings;
+  final bool fallDetected;
+  final bool? movementDetected;
+
+  /// Minutes until the RiskEngine projects a threshold breach, when it
+  /// computes one. Null means "not projected", never "no risk".
+  final int? timeToThresholdMinutes;
+
+  /// Machine-readable reason ids from the RiskEngine, e.g.
+  /// `heat_strain_rising`. The assistant explains these; it never adds to
+  /// them.
+  final List<String> reasons;
 
   final String connectivity;
   final bool dataIsStale;
@@ -92,7 +141,7 @@ class AssistantContext {
   final bool telemetryAvailable;
   final String sourceType;
 
-  /// True when readings should be presented as untrustworthy.
+  /// True when readings must be presented as untrustworthy.
   bool get readingsUnreliable =>
       !telemetryAvailable ||
       dataIsStale ||
@@ -100,16 +149,17 @@ class AssistantContext {
       signalQuality == 'reacquiring';
 
   Map<String, dynamic> toJson() => {
+    'riskLevel': riskLevel.wireValue,
     'heartRate': heartRate,
     'spo2': spo2,
-    'ambientTemperature': temperature,
+    'temperature': temperature,
+    'ambientTemperature': ambientTemperature,
     'humidity': humidity,
-    'motionMagnitudeG': motionMagnitudeG,
+    'signalQuality': signalQuality,
     'fallDetected': fallDetected,
     'movementDetected': movementDetected,
-    'signalQuality': signalQuality,
-    'riskLevel': riskLevel.wireValue,
-    'activeWarnings': activeWarnings,
+    'timeToThresholdMinutes': timeToThresholdMinutes,
+    'reasons': reasons,
     'connectivity': connectivity,
     'dataIsStale': dataIsStale,
     'contactState': contactState,
@@ -120,32 +170,31 @@ class AssistantContext {
 
   /// Compact, deterministic rendering for the prompt. Nulls are written as
   /// "unavailable" rather than dropped, so the model cannot mistake a missing
-  /// reading for one it is free to invent.
+  /// reading for one it may invent.
   String toPromptBlock() {
     String number(double? value, String unit, {int decimals = 0}) =>
         value == null
         ? 'unavailable'
         : '${value.toStringAsFixed(decimals)}$unit';
 
-    final lines = <String>[
+    return <String>[
+      'riskLevel: ${riskLevel.wireValue}',
       'heartRate: ${number(heartRate, ' bpm')}',
       'spo2: ${number(spo2, '%')}',
-      'ambientTemperature: ${number(temperature, ' C', decimals: 1)}'
-          '  (air temperature, not body temperature)',
+      'bodyTemperature: ${number(temperature, ' C', decimals: 1)}',
+      'ambientTemperature: ${number(ambientTemperature, ' C', decimals: 1)}',
       'humidity: ${number(humidity, '%')}',
-      'motion: ${number(motionMagnitudeG, ' g', decimals: 2)}',
+      'signalQuality: $signalQuality',
       'fallDetected: $fallDetected',
       'movementDetected: ${movementDetected ?? 'unknown'}',
-      'signalQuality: $signalQuality',
-      'riskLevel: ${riskLevel.wireValue}',
-      'activeWarnings: ${activeWarnings.isEmpty ? 'none' : activeWarnings.join(', ')}',
+      'timeToThresholdMinutes: ${timeToThresholdMinutes ?? 'not projected'}',
+      'reasons: ${reasons.isEmpty ? 'none' : reasons.join(', ')}',
       'connectivity: $connectivity',
       'dataIsStale: $dataIsStale',
       'sensorContact: $contactState',
       'telemetryAvailable: $telemetryAvailable',
       'telemetrySource: $sourceType',
-    ];
-    return lines.join('\n');
+    ].join('\n');
   }
 
   @override

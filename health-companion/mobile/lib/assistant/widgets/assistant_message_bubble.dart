@@ -1,12 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../models/assistant_message.dart';
-import '../models/assistant_mode.dart';
 
 class AssistantMessageBubble extends StatelessWidget {
-  const AssistantMessageBubble({super.key, required this.message});
+  const AssistantMessageBubble({
+    super.key,
+    required this.message,
+    this.isStreaming = false,
+  });
 
   final AssistantMessage message;
+
+  /// True while tokens are still arriving, so the bubble can show a caret.
+  final bool isStreaming;
 
   @override
   Widget build(BuildContext context) {
@@ -45,12 +51,12 @@ class AssistantMessageBubble extends StatelessWidget {
               : CrossAxisAlignment.start,
           children: [
             Text(
-              message.text,
+              isStreaming ? '${message.text}▌' : message.text,
               style: const TextStyle(height: 1.4, color: Color(0xFFE6F1F4)),
             ),
-            // A stored answer is labelled so it is never mistaken for a
-            // generated one.
-            if (!isUser && message.mode == AssistantMode.localKnowledgeOnly)
+            // Stored text is labelled so it is never mistaken for generated
+            // words.
+            if (!isUser && !isStreaming && message.isStoredAnswer)
               const Padding(
                 padding: EdgeInsets.only(top: 8),
                 child: Text(

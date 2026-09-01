@@ -19,9 +19,7 @@ android {
         applicationId = "in.sih.swasthyashield.swasthyashield_edge"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        // flutter_gemma (on-device AI) requires API 26. This raises the floor
-        // from Flutter's default and drops Android 5.0-7.1 devices.
-        minSdk = 26
+        minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName

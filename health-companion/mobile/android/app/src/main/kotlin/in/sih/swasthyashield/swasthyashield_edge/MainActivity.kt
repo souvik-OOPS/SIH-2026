@@ -13,9 +13,15 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var permissionResult: MethodChannel.Result? = null
     private var smsPermissionResult: MethodChannel.Result? = null
+    private var qwenChannel: QwenAssistantChannel? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        // Isolated: nothing else in the app touches the Qualcomm runtime.
+        qwenChannel = QwenAssistantChannel(
+            applicationContext,
+            flutterEngine.dartExecutor.binaryMessenger,
+        )
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -167,6 +173,12 @@ class MainActivity : FlutterActivity() {
                 smsPermissionResult = null
             }
         }
+    }
+
+    override fun onDestroy() {
+        qwenChannel?.dispose()
+        qwenChannel = null
+        super.onDestroy()
     }
 
     private companion object {

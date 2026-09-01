@@ -1,18 +1,17 @@
-import 'assistant_mode.dart';
-
-enum AssistantMessageRole { user, assistant, system }
+enum AssistantMessageRole { user, assistant }
 
 /// One line of the conversation.
 ///
-/// [mode] records which capability produced an assistant reply, so the UI can
-/// label a knowledge-base answer differently from a generated one. A user
-/// deserves to know when they are reading a stored answer.
+/// [engineName] records which engine produced an assistant reply, so the UI
+/// can label a knowledge-base answer differently from a generated one. A user
+/// deserves to know when they are reading stored text rather than a model's
+/// words.
 class AssistantMessage {
   const AssistantMessage({
     required this.role,
     required this.text,
     required this.at,
-    this.mode,
+    this.engineName,
     this.isError = false,
     this.knowledgeSourceIds = const [],
   });
@@ -26,14 +25,14 @@ class AssistantMessage {
 
   factory AssistantMessage.assistant(
     String text, {
-    AssistantMode? mode,
+    String? engineName,
     DateTime? at,
     List<String> knowledgeSourceIds = const [],
   }) => AssistantMessage(
     role: AssistantMessageRole.assistant,
     text: text,
     at: at ?? DateTime.now(),
-    mode: mode,
+    engineName: engineName,
     knowledgeSourceIds: knowledgeSourceIds,
   );
 
@@ -48,9 +47,12 @@ class AssistantMessage {
   final AssistantMessageRole role;
   final String text;
   final DateTime at;
-  final AssistantMode? mode;
+  final String? engineName;
   final bool isError;
   final List<String> knowledgeSourceIds;
 
   bool get isUser => role == AssistantMessageRole.user;
+
+  /// True when the text came from the approved corpus rather than a model.
+  bool get isStoredAnswer => engineName == 'Offline guide';
 }

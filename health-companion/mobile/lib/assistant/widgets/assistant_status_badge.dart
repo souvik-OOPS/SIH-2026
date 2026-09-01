@@ -1,32 +1,47 @@
 import 'package:flutter/material.dart';
 
-import '../models/assistant_mode.dart';
+import '../models/assistant_context.dart';
 
-/// Tells the user which capability is answering, and that it works offline.
+/// Shows which engine is answering, that it works offline, and the
+/// RiskEngine's current state.
 ///
-/// Shown always, not only on failure: a person reading a stored knowledge-base
-/// answer should know it is not a generated one.
+/// The risk pill reads from the app's own state, never from anything the
+/// model said — that is the point of showing them side by side.
 class AssistantStatusBadge extends StatelessWidget {
-  const AssistantStatusBadge({super.key, required this.mode});
+  const AssistantStatusBadge({
+    super.key,
+    required this.engineName,
+    required this.riskLevel,
+    this.usesLlm = false,
+  });
 
-  final AssistantMode mode;
+  final String engineName;
+  final RiskLevel riskLevel;
+  final bool usesLlm;
+
+  static Color riskColour(RiskLevel level) => switch (level) {
+    RiskLevel.emergency => const Color(0xFFFF7482),
+    RiskLevel.act => const Color(0xFFFF9E6B),
+    RiskLevel.watch => const Color(0xFFF6C859),
+    RiskLevel.normal => const Color(0xFF49D6C7),
+    RiskLevel.notComputed => const Color(0xFF91AAB5),
+  };
 
   @override
   Widget build(BuildContext context) {
-    final colour = switch (mode) {
-      AssistantMode.builtIn => const Color(0xFF49D6C7),
-      AssistantMode.downloadedModel => const Color(0xFF9CC9FF),
-      AssistantMode.localKnowledgeOnly => const Color(0xFFF6C859),
-      AssistantMode.unavailable => const Color(0xFFFF7482),
-    };
-
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        _Pill(label: mode.label.toUpperCase(), colour: colour),
-        if (mode.worksOffline)
-          const _Pill(label: 'OFFLINE', colour: Color(0xFF9FDDC5)),
+        _Pill(
+          label: engineName.toUpperCase(),
+          colour: usesLlm ? const Color(0xFF49D6C7) : const Color(0xFFF6C859),
+        ),
+        const _Pill(label: 'OFFLINE', colour: Color(0xFF9FDDC5)),
+        _Pill(
+          label: 'RISK: ${riskLevel.wireValue}',
+          colour: riskColour(riskLevel),
+        ),
       ],
     );
   }
