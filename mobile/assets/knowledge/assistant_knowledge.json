@@ -1,0 +1,246 @@
+[
+  {
+    "id": "current_condition",
+    "title": "Your current condition",
+    "keywords": ["condition", "readings", "current", "vitals", "numbers", "status"],
+    "question": "Explain my current condition.",
+    "answer": "The app shows heart rate, blood oxygen (SpO2), the temperature and humidity of the air around you, and how much you are moving. Signal confidence tells you whether the heart rate and SpO2 can be trusted. The risk level on the dashboard is calculated by the app, not by this assistant.",
+    "category": "general",
+    "language": "en"
+  },
+  {
+    "id": "warning_why",
+    "title": "Why a warning appears",
+    "keywords": ["warning", "alert", "raised", "triggered", "reason"],
+    "question": "Why am I getting this warning?",
+    "answer": "A warning appears when the app's risk engine sees a pattern worth acting on, such as heat building faster than your body can cope with, or an unusual heart rate. The dashboard lists the reasons. This assistant only explains those reasons; it cannot raise or lower a warning.",
+    "category": "alerts",
+    "language": "en"
+  },
+  {
+    "id": "what_to_do",
+    "title": "What to do now",
+    "keywords": ["action", "next", "steps", "respond"],
+    "question": "What should I do now?",
+    "answer": "Follow the action shown with the current risk level. For heat: move to shade, stop exertion, sip water. For a fall alert: check on the person straight away. If the app shows EMERGENCY, treat it as urgent and get help. Do not wait for a reading to improve on its own.",
+    "category": "emergency",
+    "language": "en"
+  },
+  {
+    "id": "signal_reliable",
+    "title": "Signal reliability",
+    "keywords": ["signal", "reliable", "confidence", "trust", "poor", "quality"],
+    "question": "Is my sensor signal reliable?",
+    "answer": "Signal confidence shows how cleanly the sensor is reading your finger. GOOD means the numbers can be trusted. FAIR means hold still. POOR means the reading is unreliable and should not be acted on. REACQUIRING means no fresh data is arriving at all.",
+    "category": "sensor quality",
+    "language": "en"
+  },
+  {
+    "id": "stale_data",
+    "title": "Stale data",
+    "keywords": ["stale", "old", "frozen", "updating", "stuck"],
+    "question": "What does STALE DATA mean?",
+    "answer": "The connection still looks up, but no new readings have arrived for several seconds. The numbers on screen are the last ones received and may no longer match what is happening. This is shown separately from a full disconnect so a silent sensor is never mistaken for a working one.",
+    "category": "device usage",
+    "language": "en"
+  },
+  {
+    "id": "ble_disconnected",
+    "title": "Device disconnected",
+    "keywords": ["disconnected", "connect", "bluetooth", "ble", "pairing"],
+    "question": "Is the sensor connected?",
+    "answer": "DISCONNECTED means the wearable is not linked to the phone. Check it has power, is within a few metres, and that Bluetooth is on. The app keeps retrying by itself, waiting longer between tries to save battery. You can also switch to Replay mode to use the app without hardware.",
+    "category": "device usage",
+    "language": "en"
+  },
+  {
+    "id": "ambient_temperature",
+    "title": "Ambient air temperature",
+    "keywords": ["temperature", "temp", "air", "celsius", "fever", "body"],
+    "question": "Is that my body temperature?",
+    "answer": "No. The temperature shown is the AIR around you, measured by the DHT22 sensor. It is not body temperature and cannot tell you whether you have a fever. This device has no body-temperature sensor fitted.",
+    "category": "sensor quality",
+    "language": "en"
+  },
+  {
+    "id": "heat_stress",
+    "title": "Heat stress",
+    "keywords": ["heat", "hot", "heatstroke", "humidity", "dehydrated", "strain"],
+    "question": "Why is heat a risk today?",
+    "answer": "Hot air is more dangerous when it is humid, because sweat cannot evaporate and your body cannot cool itself. Move to shade or a cooler room, stop exertion, sip water, and loosen tight clothing. Get help if you feel dizzy, confused, or stop sweating.",
+    "category": "heat",
+    "language": "en"
+  },
+  {
+    "id": "pollution",
+    "title": "Air pollution",
+    "keywords": ["pollution", "smoke", "dust", "aqi", "mask", "smog"],
+    "question": "How does air pollution affect me?",
+    "answer": "Polluted air irritates the lungs and makes breathing harder, especially during exercise or if you have asthma. On bad-air days avoid outdoor exertion, keep windows shut, and wear a well-fitting mask outside. This device does not measure air quality; that information comes from elsewhere.",
+    "category": "pollution",
+    "language": "en"
+  },
+  {
+    "id": "fall_detected",
+    "title": "Fall detected",
+    "keywords": ["fall", "fell", "fallen", "impact", "collapse"],
+    "question": "Explain the fall alert",
+    "answer": "A possible fall was detected: a sharp impact followed by stillness. If no movement followed, the wearer may be unable to get up or respond. Check on the person immediately. If they are unresponsive, injured, or bleeding, call emergency services.",
+    "category": "falls",
+    "language": "en"
+  },
+  {
+    "id": "fall_prevent",
+    "title": "Preventing falls",
+    "keywords": ["prevent", "slip", "trip", "balance", "dizzy"],
+    "question": "How can I avoid falling?",
+    "answer": "Most falls happen on wet floors, loose rugs, poor lighting and stairs. Keep walkways clear, use handrails, wear grippy footwear, and stand up slowly if you feel light-headed. Sudden dizziness on standing is worth mentioning to a doctor.",
+    "category": "falls",
+    "language": "en"
+  },
+  {
+    "id": "spo2_low",
+    "title": "Low SpO2",
+    "keywords": ["spo2", "oxygen", "saturation", "breathing", "breath"],
+    "question": "What does a low SpO2 reading mean?",
+    "answer": "SpO2 is the oxygen level in your blood. Around 95-100% is usual at rest. A low reading can mean less oxygen is reaching your blood, but it is very often just a poor sensor reading, a cold finger, or movement. Check signal confidence first. If it stays low with a good signal and you feel breathless, seek medical help.",
+    "category": "sensor quality",
+    "language": "en"
+  },
+  {
+    "id": "heart_rate",
+    "title": "Heart rate",
+    "keywords": ["heart", "rate", "bpm", "pulse", "beat", "baseline"],
+    "question": "What does my heart rate mean?",
+    "answer": "Heart rate is beats per minute. About 60-100 at rest is typical for adults; it rises with activity, heat, stress and illness. One reading means little on its own, a trend matters more. If signal confidence is not GOOD, treat the number with caution.",
+    "category": "sensor quality",
+    "language": "en"
+  },
+  {
+    "id": "no_finger",
+    "title": "No finger contact",
+    "keywords": ["finger", "contact", "placement", "touch"],
+    "question": "It says no finger contact",
+    "answer": "The sensor cannot see a finger, so heart rate and SpO2 are blank. The app will not show numbers it does not trust. Rest a fingertip flat over the sensor window, covering it fully, and hold still without pressing hard.",
+    "category": "sensor quality",
+    "language": "en"
+  },
+  {
+    "id": "sos_alert",
+    "title": "Emergency SOS",
+    "keywords": ["sos", "emergency", "help", "contact", "sms"],
+    "question": "What happens when I send an SOS?",
+    "answer": "An SOS sends an SMS from this phone to your emergency contacts with your latest readings and the time. It uses SMS rather than the internet, because text messages usually still work when mobile data and Wi-Fi are down. The app always shows you the message and asks you to confirm first.",
+    "category": "emergency",
+    "language": "en"
+  },
+  {
+    "id": "cooldown",
+    "title": "Alert held by cooldown",
+    "keywords": ["cooldown", "held", "repeat", "blocked", "waiting"],
+    "question": "Why was my alert held?",
+    "answer": "After an alert goes out, the app waits five minutes before sending another to the same contact, so a repeating condition does not flood their phone. A held alert is never silent: the app tells you it was held and how long remains.",
+    "category": "alerts",
+    "language": "en"
+  },
+  {
+    "id": "risk_not_computed",
+    "title": "Risk level not computed",
+    "keywords": ["risk", "level", "computed", "score", "safe"],
+    "question": "Why is there no risk level?",
+    "answer": "The automatic risk engine is not enabled in this build, so the app has not calculated a risk level. The readings shown are real, but no overall safety judgement has been made. Do not read the absence of a warning as an all-clear.",
+    "category": "alerts",
+    "language": "en"
+  },
+  {
+    "id": "offline",
+    "title": "Working offline",
+    "keywords": ["offline", "internet", "network", "wifi", "disaster"],
+    "question": "Does this work without internet?",
+    "answer": "Yes. Monitoring, alerts and this assistant all run on the phone itself. Emergency messages go out by SMS, which normally keeps working when mobile data and Wi-Fi fail, which is exactly the situation this app is built for.",
+    "category": "device usage",
+    "language": "en"
+  },
+
+  {
+    "id": "current_condition_hi",
+    "title": "आपकी वर्तमान स्थिति",
+    "keywords": ["स्थिति", "रीडिंग", "हालत", "वाइटल"],
+    "question": "मेरी वर्तमान स्थिति समझाइए।",
+    "answer": "ऐप आपकी हृदय गति, रक्त ऑक्सीजन (SpO2), आसपास की हवा का तापमान और नमी, तथा आपकी हलचल दिखाता है। सिग्नल कॉन्फिडेंस बताता है कि रीडिंग पर भरोसा किया जा सकता है या नहीं। जोखिम स्तर ऐप तय करता है, यह सहायक नहीं।",
+    "category": "general",
+    "language": "hi"
+  },
+  {
+    "id": "warning_why_hi",
+    "title": "चेतावनी क्यों आई",
+    "keywords": ["चेतावनी", "अलर्ट", "कारण"],
+    "question": "मुझे यह चेतावनी क्यों मिल रही है?",
+    "answer": "चेतावनी तब आती है जब ऐप का जोखिम इंजन कोई ऐसा पैटर्न देखता है जिस पर ध्यान देना ज़रूरी है, जैसे गर्मी का तेज़ी से बढ़ना या असामान्य हृदय गति। कारण डैशबोर्ड पर दिखते हैं। यह सहायक केवल उन्हें समझाता है, बदल नहीं सकता।",
+    "category": "alerts",
+    "language": "hi"
+  },
+  {
+    "id": "what_to_do_hi",
+    "title": "अब क्या करें",
+    "keywords": ["कार्रवाई", "करना", "कदम"],
+    "question": "मुझे अब क्या करना चाहिए?",
+    "answer": "मौजूदा जोखिम स्तर के साथ दिखाई गई कार्रवाई करें। गर्मी में: छाया में जाएँ, मेहनत रोकें, पानी पिएँ। गिरने की चेतावनी पर: तुरंत उस व्यक्ति को देखें। यदि ऐप EMERGENCY दिखाता है तो इसे तत्काल मानें और मदद लें।",
+    "category": "emergency",
+    "language": "hi"
+  },
+  {
+    "id": "signal_reliable_hi",
+    "title": "सिग्नल की गुणवत्ता",
+    "keywords": ["सिग्नल", "भरोसा", "गुणवत्ता", "खराब"],
+    "question": "क्या मेरा सेंसर सिग्नल भरोसेमंद है?",
+    "answer": "सिग्नल कॉन्फिडेंस बताता है कि सेंसर आपकी उंगली को कितनी साफ़ पढ़ रहा है। GOOD का मतलब भरोसा किया जा सकता है। FAIR पर स्थिर रहें। POOR का मतलब रीडिंग भरोसेमंद नहीं है। REACQUIRING का मतलब नया डेटा नहीं आ रहा।",
+    "category": "sensor quality",
+    "language": "hi"
+  },
+  {
+    "id": "heat_stress_hi",
+    "title": "गर्मी का तनाव",
+    "keywords": ["गर्मी", "लू", "नमी", "पानी"],
+    "question": "आज गर्मी खतरनाक क्यों है?",
+    "answer": "नम हवा में गर्मी ज़्यादा खतरनाक होती है क्योंकि पसीना सूख नहीं पाता और शरीर ठंडा नहीं हो पाता। छाया या ठंडी जगह जाएँ, मेहनत बंद करें, थोड़ा-थोड़ा पानी पिएँ। चक्कर आए, उलझन हो या पसीना आना बंद हो जाए तो मदद लें।",
+    "category": "heat",
+    "language": "hi"
+  },
+  {
+    "id": "pollution_hi",
+    "title": "वायु प्रदूषण",
+    "keywords": ["प्रदूषण", "धुआं", "धूल", "मास्क"],
+    "question": "वायु प्रदूषण मुझे कैसे प्रभावित करता है?",
+    "answer": "प्रदूषित हवा फेफड़ों में जलन करती है और साँस लेना कठिन बनाती है, खासकर व्यायाम के दौरान या दमा होने पर। खराब हवा वाले दिनों में बाहर मेहनत से बचें, खिड़कियाँ बंद रखें और बाहर अच्छा मास्क पहनें। यह डिवाइस वायु गुणवत्ता नहीं मापता।",
+    "category": "pollution",
+    "language": "hi"
+  },
+  {
+    "id": "fall_detected_hi",
+    "title": "गिरने का पता चला",
+    "keywords": ["गिरना", "गिर", "चोट"],
+    "question": "गिरने की चेतावनी समझाइए",
+    "answer": "संभावित गिरावट का पता चला: तेज़ झटका और उसके बाद निश्चलता। यदि उसके बाद कोई हलचल नहीं हुई, तो व्यक्ति उठ या बोल नहीं पा रहा हो सकता है। तुरंत जाकर देखें। यदि वे बेहोश या घायल हों तो आपातकालीन सेवा को बुलाएँ।",
+    "category": "falls",
+    "language": "hi"
+  },
+  {
+    "id": "ambient_temperature_hi",
+    "title": "हवा का तापमान",
+    "keywords": ["तापमान", "हवा", "बुखार", "शरीर"],
+    "question": "क्या यह मेरे शरीर का तापमान है?",
+    "answer": "नहीं। दिखाया गया तापमान आपके आसपास की हवा का है। यह शरीर का तापमान नहीं है और बुखार नहीं बता सकता। इस डिवाइस में शरीर का तापमान मापने वाला सेंसर नहीं लगा है।",
+    "category": "sensor quality",
+    "language": "hi"
+  },
+  {
+    "id": "sos_alert_hi",
+    "title": "आपातकालीन SOS",
+    "keywords": ["एसओएस", "आपात", "मदद", "संदेश"],
+    "question": "SOS भेजने पर क्या होता है?",
+    "answer": "SOS इसी फ़ोन से आपके आपातकालीन संपर्कों को SMS भेजता है जिसमें आपकी नवीनतम रीडिंग और समय होता है। यह इंटरनेट के बजाय SMS का उपयोग करता है, क्योंकि डेटा और वाई-फ़ाई बंद होने पर भी SMS आमतौर पर काम करता है।",
+    "category": "emergency",
+    "language": "hi"
+  }
+]

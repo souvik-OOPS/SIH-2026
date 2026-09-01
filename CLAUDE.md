@@ -14,13 +14,16 @@ Two context facts that shape decisions:
   hardware and measured numbers matter more than UI polish.
 - **Idea submission deadline: 20 September 2026.**
 
-The code lives in `health-companion/`, not at the root of the working directory. `health-companion/README.md`
+The code lives at the repository root: `backend/`, `frontend/`, `mobile/`, `firmware/`, `ml/`. `README.md`
 is the user-facing doc (setup, API reference, detection-rule tables, demo script, wiring) — read it rather than
 duplicating it here.
 
+`docs/` is deliberately untracked. It holds generated PDFs and screenshots that are kept locally, so anything
+committed must not depend on a file inside it.
+
 ## Commands
 
-All commands run from `health-companion/`.
+All commands run from the repository root.
 
 ```bash
 # backend (port 4000)
