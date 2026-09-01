@@ -1,0 +1,262 @@
+[
+  {
+    "id": "current_readings",
+    "title": "Your current readings",
+    "keywords": [
+      "readings",
+      "current",
+      "vitals",
+      "numbers",
+      "values",
+      "explain readings",
+      "my readings",
+      "dashboard"
+    ],
+    "question": "Explain my current readings",
+    "answer": "The dashboard shows heart rate, blood oxygen (SpO2), ambient air temperature and humidity, plus how much you are moving. Signal confidence tells you whether to trust the heart rate and SpO2 — only treat them as meaningful when it reads GOOD. The temperature is the air around you, not your body temperature.",
+    "category": "general"
+  },
+  {
+    "id": "signal_poor",
+    "title": "Poor signal quality",
+    "keywords": [
+      "poor",
+      "signal",
+      "confidence",
+      "unreliable",
+      "quality",
+      "weak",
+      "bad"
+    ],
+    "question": "What does poor signal mean?",
+    "answer": "Signal confidence shows how well the optical sensor is reading your finger. When it is POOR, the sensor is not getting a clean reading — usually because the finger is loose, moving, cold, or not covering the sensor. Heart rate and SpO2 shown during poor signal may be wrong. Rest your finger still and flat on the sensor, keep your hand warm, and wait a few seconds for it to settle.",
+    "category": "sensor"
+  },
+  {
+    "id": "signal_reacquiring",
+    "title": "Reacquiring signal",
+    "keywords": [
+      "reacquiring",
+      "searching",
+      "reconnect",
+      "acquiring",
+      "lost"
+    ],
+    "question": "Why does it say reacquiring?",
+    "answer": "REACQUIRING means the app is not receiving trustworthy data right now — either the link dropped or readings stopped arriving. The last number you saw is old. The app retries on its own, waiting a little longer between attempts to save battery. Check the device is switched on and nearby.",
+    "category": "sensor"
+  },
+  {
+    "id": "signal_tiers",
+    "title": "Signal confidence levels",
+    "keywords": [
+      "good",
+      "fair",
+      "tiers",
+      "levels",
+      "confidence",
+      "percent"
+    ],
+    "question": "What do GOOD, FAIR and POOR mean?",
+    "answer": "GOOD means the sensor has a clean reading and the numbers can be trusted. FAIR means the reading is usable but not ideal — hold still. POOR means the reading is unreliable and should not be acted on. REACQUIRING means no fresh data is arriving at all.",
+    "category": "sensor"
+  },
+  {
+    "id": "stale_data",
+    "title": "Stale data",
+    "keywords": [
+      "stale",
+      "old",
+      "frozen",
+      "not updating",
+      "stuck",
+      "outdated"
+    ],
+    "question": "What does STALE DATA mean?",
+    "answer": "STALE DATA means the connection still looks up, but no new readings have arrived for several seconds. The numbers on screen are the last ones received and may no longer reflect what is happening. This is shown separately from a full disconnect so a silent sensor is never mistaken for a working one.",
+    "category": "device"
+  },
+  {
+    "id": "ble_disconnected",
+    "title": "Device disconnected",
+    "keywords": [
+      "disconnected",
+      "connect",
+      "bluetooth",
+      "ble",
+      "offline",
+      "not connected",
+      "pairing"
+    ],
+    "question": "Is the sensor connected?",
+    "answer": "When the status shows DISCONNECTED, the wearable is not linked to the phone. Check that the device has power, is within a few metres, and that Bluetooth is on. The app keeps retrying by itself and waits longer between tries so it does not drain your battery. You can also switch to Replay mode to use the app without hardware.",
+    "category": "device"
+  },
+  {
+    "id": "ambient_temperature",
+    "title": "Ambient temperature",
+    "keywords": [
+      "temperature",
+      "temp",
+      "hot",
+      "celsius",
+      "air",
+      "fever",
+      "body"
+    ],
+    "question": "Is the temperature my body temperature?",
+    "answer": "No. The temperature shown is AMBIENT AIR temperature — the air around you, measured by the DHT22 sensor. It is not body temperature and cannot tell you whether you have a fever. This device has no body-temperature sensor fitted.",
+    "category": "sensor"
+  },
+  {
+    "id": "heat_warning",
+    "title": "Heat stress",
+    "keywords": [
+      "heat",
+      "hot",
+      "heatstroke",
+      "heat stress",
+      "humidity",
+      "warning",
+      "dehydrated"
+    ],
+    "question": "Why am I seeing a heat warning?",
+    "answer": "A heat warning is raised when the air is hot and humid enough that your body struggles to cool itself, especially if your heart rate is climbing. Humidity matters as much as temperature because sweat cannot evaporate in humid air. Move to shade or a cooler room, stop exertion, sip water, and loosen tight clothing. Get help if you feel dizzy, confused, or stop sweating.",
+    "category": "warning"
+  },
+  {
+    "id": "fall_detected",
+    "title": "Fall detected",
+    "keywords": [
+      "fall",
+      "fell",
+      "fallen",
+      "impact",
+      "collapse",
+      "down"
+    ],
+    "question": "Explain the fall alert",
+    "answer": "A possible fall was detected: the device sensed a sharp impact followed by stillness. If no movement was detected afterwards, the wearer may be unable to get up or respond. Check on the person immediately. If they are unresponsive, injured, or bleeding, call emergency services.",
+    "category": "emergency"
+  },
+  {
+    "id": "spo2_low",
+    "title": "Low SpO2",
+    "keywords": [
+      "spo2",
+      "oxygen",
+      "saturation",
+      "low oxygen",
+      "breathing",
+      "breath"
+    ],
+    "question": "What does a low SpO2 reading mean?",
+    "answer": "SpO2 is the oxygen saturation of your blood. Readings around 95-100% are usually normal at rest. A low reading can mean your body is not getting enough oxygen — but it is also very often caused by a poor sensor reading, a cold finger, or movement. Check the signal confidence first. If the reading stays low with a good signal, and you feel breathless, seek medical help.",
+    "category": "sensor"
+  },
+  {
+    "id": "heart_rate",
+    "title": "Heart rate",
+    "keywords": [
+      "heart",
+      "rate",
+      "bpm",
+      "pulse",
+      "beat",
+      "fast",
+      "slow"
+    ],
+    "question": "Explain my heart rate",
+    "answer": "Heart rate is measured in beats per minute. A typical resting adult range is roughly 60-100 bpm; it rises with activity, heat, stress, and illness. A single reading means little on its own — a trend matters more. If the signal confidence is not GOOD, treat the number with caution.",
+    "category": "sensor"
+  },
+  {
+    "id": "no_finger",
+    "title": "No finger contact",
+    "keywords": [
+      "finger",
+      "contact",
+      "no finger",
+      "detected",
+      "placement"
+    ],
+    "question": "It says no finger contact",
+    "answer": "The optical sensor cannot see a finger. Heart rate and SpO2 are blank because the app will not show numbers it does not trust. Rest a fingertip flat over the sensor window, covering it fully, and hold still without pressing hard.",
+    "category": "sensor"
+  },
+  {
+    "id": "sos_alert",
+    "title": "Emergency SOS",
+    "keywords": [
+      "sos",
+      "emergency",
+      "help",
+      "alert",
+      "contact",
+      "sms"
+    ],
+    "question": "What happens when I send an SOS?",
+    "answer": "An SOS sends an SMS from this phone directly to your emergency contacts, with your latest readings and the time. It uses SMS rather than the internet because text messages usually still work when mobile data and Wi-Fi are down. The app always asks you to confirm first, and shows you the exact message before it goes.",
+    "category": "emergency"
+  },
+  {
+    "id": "cooldown",
+    "title": "Alert held by cooldown",
+    "keywords": [
+      "cooldown",
+      "held",
+      "repeat",
+      "again",
+      "blocked",
+      "waiting"
+    ],
+    "question": "Why was my alert held?",
+    "answer": "After an alert goes out, the app waits five minutes before sending another to the same contact, so a repeating condition does not flood their phone. A held alert is never silent — the app tells you it was held and how long remains.",
+    "category": "emergency"
+  },
+  {
+    "id": "replay_mode",
+    "title": "Replay mode",
+    "keywords": [
+      "replay",
+      "demo",
+      "fixture",
+      "simulation",
+      "test",
+      "mock"
+    ],
+    "question": "What is replay mode?",
+    "answer": "Replay mode plays recorded sample data instead of reading a real sensor, so the app can be demonstrated with no hardware attached. Readings in replay mode are not from a real person. You can switch between Replay and Live BLE in developer settings.",
+    "category": "device"
+  },
+  {
+    "id": "offline_capability",
+    "title": "Working offline",
+    "keywords": [
+      "offline",
+      "internet",
+      "network",
+      "wifi",
+      "data",
+      "disaster"
+    ],
+    "question": "Does this work without internet?",
+    "answer": "Yes. Monitoring, alerts and this assistant all run on the phone itself with no internet. Emergency messages go out by SMS, which normally keeps working when mobile data and Wi-Fi fail — which is exactly the situation this app is built for.",
+    "category": "general"
+  },
+  {
+    "id": "risk_not_computed",
+    "title": "Risk level not computed",
+    "keywords": [
+      "risk",
+      "level",
+      "not computed",
+      "unknown",
+      "score",
+      "safe"
+    ],
+    "question": "Why is there no risk level?",
+    "answer": "The automatic risk engine is not enabled in this build, so the app has not calculated a risk level. The readings shown are real, but no overall safety judgement has been made from them. Do not read the absence of a warning as an all-clear.",
+    "category": "general"
+  }
+]
