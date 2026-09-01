@@ -14,6 +14,9 @@ if (process.env.WEATHER_MOCK) {
 
 export const config = {
   port: num(process.env.PORT, 4000),
+  // Bind explicitly to IPv4 so ESP32 clients on the Wi-Fi LAN do not depend
+  // on the OS mapping an IPv6 wildcard socket back to IPv4.
+  host: process.env.HOST || '0.0.0.0',
   corsOrigin: process.env.CORS_ORIGIN || '*',
 
   // PostgreSQL (Supabase). Blank -> in-memory store.

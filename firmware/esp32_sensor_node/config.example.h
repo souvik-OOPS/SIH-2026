@@ -13,7 +13,7 @@
 #define DEVICE_API_KEY  "sih26181-dev-key"   // must match the backend .env
 
 // ---- Timing ----
-#define SEND_INTERVAL_MS   5000   // how often to POST a sample
+#define SEND_INTERVAL_MS   1000   // 1 Hz: matches the ML model's 30-second input window
 #define PPG_SAMPLE_HZ      25     // MAX30102 sampling rate for SpO2
 
 // ---- Pins ----

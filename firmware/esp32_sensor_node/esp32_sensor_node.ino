@@ -101,6 +101,14 @@ const unsigned long MOTION_INTERVAL_MS = 20;  // ~50 Hz
 
 // Rolling movement estimate, used to classify rest/light/active.
 float motionEnergy = 0;
+// A gravity-magnitude-only detector reports "rest" when the wearer rotates
+// their wrist. Keep the prior acceleration vector and include gyro movement.
+float previousAccelXG = 0;
+float previousAccelYG = 0;
+float previousAccelZG = 0;
+bool  havePreviousAccel = false;
+float accelDeltaG = 0;
+float gyroMagnitudeDps = 0;
 
 /* --------------------------------- timing --------------------------------- */
 
@@ -238,9 +246,23 @@ void readMotion() {
   float az = a.acceleration.z / 9.80665f;
   accelMagnitudeG = sqrtf(ax * ax + ay * ay + az * az);
 
-  // Low-pass the deviation from 1 g into a movement estimate.
-  float dev = fabsf(accelMagnitudeG - 1.0f);
-  motionEnergy = motionEnergy * 0.92f + dev * 0.08f;
+  accelDeltaG = 0;
+  if (havePreviousAccel) {
+    const float dx = ax - previousAccelXG;
+    const float dy = ay - previousAccelYG;
+    const float dz = az - previousAccelZG;
+    accelDeltaG = sqrtf(dx * dx + dy * dy + dz * dz);
+  }
+  previousAccelXG = ax;
+  previousAccelYG = ay;
+  previousAccelZG = az;
+  havePreviousAccel = true;
+
+  // Adafruit reports angular velocity in rad/s; convert it to degrees/s.
+  gyroMagnitudeDps = sqrtf(g.gyro.x * g.gyro.x + g.gyro.y * g.gyro.y + g.gyro.z * g.gyro.z) * 57.29578f;
+  const float gravityDeviation = fabsf(accelMagnitudeG - 1.0f);
+  const float instantMotion = fmaxf(gravityDeviation, fmaxf(accelDeltaG * 1.5f, gyroMagnitudeDps / 100.0f));
+  motionEnergy = motionEnergy * 0.88f + instantMotion * 0.12f;
 
   updateFallState();
 }
@@ -294,8 +316,8 @@ void updateFallState() {
 
 const char* motionLabel() {
   if (!mpuReady) return "unknown";
-  if (motionEnergy < 0.05f) return "rest";
-  if (motionEnergy < 0.22f) return "light";
+  if (motionEnergy < 0.045f) return "rest";
+  if (motionEnergy < 0.18f) return "light";
   return "active";
 }
 

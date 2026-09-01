@@ -78,9 +78,13 @@ export default defineNuxtConfig({
           },
         },
         {
-          // Serve the real page when online; fall back to the last-seen copy
-          // of that same route when the network is gone.
-          urlPattern: ({ request }) => request.mode === 'navigate',
+          // Only regex patterns can be serialised into Workbox's generated
+          // service worker. A request-mode callback is emitted as native code
+          // by the PWA plugin and makes the worker invalid JavaScript.
+          //
+          // Cache the three application pages when online and fall back to
+          // their last-seen copies when the connection drops.
+          urlPattern: /^https?:\/\/[^/]+\/(?:history|alerts)?(?:\?.*)?$/,
           handler: 'NetworkFirst',
           options: {
             cacheName: 'health-pages',

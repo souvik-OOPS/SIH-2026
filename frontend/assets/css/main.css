@@ -228,6 +228,10 @@ a { color: inherit; text-decoration: none; }
   margin-bottom: 10px;
 }
 
+.movement-tile {
+  grid-column: 1 / -1;
+}
+
 .rule {
   height: 1px;
   background: var(--line);

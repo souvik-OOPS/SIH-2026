@@ -68,11 +68,11 @@ async function start() {
     lon: config.weather.lon,
   });
 
-  server.listen(config.port, () => {
+  server.listen(config.port, config.host, () => {
     const s = storeStatus();
     console.log('');
     console.log(`  Personal Health Companion — backend`);
-    console.log(`  http://localhost:${config.port}`);
+    console.log(`  listening on http://${config.host}:${config.port}`);
     console.log(`  store: ${s.backend}   sms: ${config.sms.provider}   weather: ${config.weather.apiKey ? 'live' : config.weather.mock ? 'mocked' : 'device-only'}   ml: ${mlStatus().status}`);
     console.log('');
   });

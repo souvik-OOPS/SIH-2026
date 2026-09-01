@@ -122,6 +122,22 @@ const motionLabel = computed(() => {
   const m = latest.value?.motion
   return !m || m === 'unknown' ? null : m
 })
+
+const dhtAvailable = computed(() =>
+  latest.value?.ambientTemp != null && latest.value?.humidity != null
+)
+
+const ambientFoot = computed(() =>
+  latest.value?.humidity != null
+    ? `Humidity ${latest.value.humidity.toFixed(0)}% RH`
+    : 'Waiting for valid DHT data'
+)
+
+const humidityFoot = computed(() =>
+  latest.value?.ambientTemp != null
+    ? `Ambient ${latest.value.ambientTemp.toFixed(1)}°C`
+    : 'Waiting for valid DHT data'
+)
 </script>
 
 <template>
@@ -173,13 +189,24 @@ const motionLabel = computed(() => {
 
       <div class="grid-2">
         <VitalTile
-          label="Body temp"
+          label="Ambient temp"
           icon="thermometer"
-          :value="latest.bodyTemp"
+          :value="latest.ambientTemp"
           unit="°C"
-          :foot="latest.bodyTemp == null ? 'Sensor not fitted' : 'Skin contact'"
+          :foot="ambientFoot"
         />
         <VitalTile
+          label="Humidity"
+          icon="droplet"
+          :value="latest.humidity"
+          unit="%"
+          :foot="humidityFoot"
+        />
+      </div>
+
+      <div class="grid-2">
+        <VitalTile
+          class="movement-tile"
           label="Movement"
           icon="motion"
           :value="motionLabel"
@@ -214,10 +241,14 @@ const motionLabel = computed(() => {
         <div class="scale">
           <span>Safe</span><span>Caution</span><span>Danger</span><span>Extreme</span>
         </div>
-        <p class="note">
+        <p v-if="dhtAvailable" class="note">
           Apparent temperature from {{ latest.ambientTemp ?? '––' }}°C at {{ latest.humidity ?? '––' }}% RH
           ({{ envSourceLabel }}).
           <template v-if="derived?.heatIndexExtrapolated">Beyond the NWS chart's validated range.</template>
+        </p>
+        <p v-else class="note">
+          No valid DHT temperature and humidity sample has reached the backend yet.
+          The device serial monitor will show the exact DHT values being read.
         </p>
 
         <div class="rule" />
