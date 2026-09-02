@@ -68,6 +68,19 @@ export interface DeviceInfo {
   lastSeen?: string
 }
 
+export interface CheckIn {
+  state: 'none' | 'awaiting' | 'resolved' | 'escalated'
+  id?: string
+  reason?: string
+  openedAt?: string
+  expiresAt?: string
+  respondedAt?: string | null
+  escalatedAt?: string | null
+  remainingSeconds?: number
+  windowSeconds?: number
+  fall?: { reason?: string; confidence?: number } | null
+}
+
 export interface DisasterAlert {
   id: string
   hazard: string
@@ -122,6 +135,7 @@ export function useHealth() {
   const device = useState<DeviceInfo | null>('hc:device', () => null)
   const banner = useState<Alert | null>('hc:banner', () => null)
   const disaster = useState<DisasterContext | null>('hc:disaster', () => null)
+  const checkIn = useState<CheckIn>('hc:checkin', () => ({ state: 'none' }))
   const started = useState<boolean>('hc:started', () => false)
   const now = useState<number>('hc:now', () => Date.now())
 
@@ -187,6 +201,56 @@ export function useHealth() {
       disaster.value = res.context
     } catch {
       disaster.value = null
+    }
+  }
+
+  /**
+   * Fall check-in state.
+   *
+   * Polled on its own clock rather than driven by incoming readings: the whole
+   * point of this countdown is the case where the wearer has stopped moving and
+   * telemetry may have stopped with them. A countdown that only advanced when a
+   * new reading arrived would stall exactly when it matters.
+   */
+  async function loadCheckIn() {
+    try {
+      const res = await $fetch<{ checkIn: CheckIn }>(
+        `${apiBase}/api/safety/${deviceId}/check-in`,
+      )
+      checkIn.value = res.checkIn
+    } catch {
+      // Backend unreachable. Leave the last known state rather than clearing
+      // it — silently dropping an open check-in would look like "resolved".
+    }
+  }
+
+  /** The wearer pressed "I'M OK". */
+  async function respondOk() {
+    try {
+      const res = await $fetch<{ ok: boolean; checkIn: CheckIn }>(
+        `${apiBase}/api/safety/${deviceId}/respond-ok`,
+        { method: 'POST' },
+      )
+      checkIn.value = res.checkIn
+      return true
+    } catch {
+      // Most likely the window already closed and escalated. Re-read rather
+      // than assuming, so the UI shows what actually happened.
+      await loadCheckIn()
+      return false
+    }
+  }
+
+  /** Dismisses a closed incident so the next fall opens a fresh one. */
+  async function clearCheckIn() {
+    try {
+      const res = await $fetch<{ checkIn: CheckIn }>(
+        `${apiBase}/api/safety/${deviceId}/clear-check-in`,
+        { method: 'POST' },
+      )
+      checkIn.value = res.checkIn
+    } catch {
+      /* leave it as-is */
     }
   }
 
@@ -266,6 +330,18 @@ export function useHealth() {
 
     // Drives the "device offline" check and the relative timestamps.
     setInterval(() => { now.value = Date.now() }, 1000)
+
+    // Fall check-in, on its own clock. Re-synced from the server every 3s, but
+    // the displayed second is ticked locally in between so the countdown reads
+    // smoothly without three requests a second.
+    loadCheckIn()
+    setInterval(loadCheckIn, 3000)
+    setInterval(() => {
+      const c = checkIn.value
+      if (c.state === 'awaiting' && (c.remainingSeconds ?? 0) > 0) {
+        checkIn.value = { ...c, remainingSeconds: (c.remainingSeconds ?? 0) - 1 }
+      }
+    }, 1000)
   }
 
   return {
@@ -278,6 +354,7 @@ export function useHealth() {
     alerts,
     device,
     disaster,
+    checkIn,
     banner,
     now,
     unacknowledged,
@@ -287,6 +364,9 @@ export function useHealth() {
     loadAlerts,
     loadDevice,
     loadDisasterContext,
+    loadCheckIn,
+    respondOk,
+    clearCheckIn,
     acknowledge,
     enableNotifications,
   }

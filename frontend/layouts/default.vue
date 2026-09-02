@@ -7,12 +7,15 @@ const TABS = [
   { to: '/', icon: 'pulse', label: 'Live' },
   { to: '/history', icon: 'chart', label: 'Trends' },
   { to: '/alerts', icon: 'bell', label: 'Alerts', badge: true },
+  { to: '/privacy', icon: 'shield', label: 'Privacy' },
 ]
 </script>
 
 <template>
   <div class="shell">
     <slot />
+
+    <FallCheckInOverlay />
 
     <nav class="tabbar">
       <NuxtLink v-for="tab in TABS" :key="tab.to" :to="tab.to">
