@@ -49,7 +49,13 @@ const ML_ALERT_RATIO = 1.6;
 
 export function getBaseline(deviceId) {
   const s = state.get(deviceId);
-  return s ? { restingHr: s.restingHr, samples: s.samples } : { restingHr: null, samples: 0 };
+  if (!s) return { restingHr: null, samples: 0, ready: false, minSamples: BASELINE_MIN_SAMPLES };
+  return {
+    restingHr: s.restingHr,
+    samples: s.samples,
+    ready: baselineReady(s),
+    minSamples: BASELINE_MIN_SAMPLES,
+  };
 }
 
 /**
@@ -87,20 +93,90 @@ const PROFILE_THRESHOLDS = {
   chronic_condition: { hrHigh: 110, hrLow: 50, spo2Low: 94, spo2Critical: 90 },
 };
 
-export const thresholdsFor = (profile) => PROFILE_THRESHOLDS[profile] || PROFILE_THRESHOLDS.general;
+/**
+ * Age-adjusted heart-rate ceiling.
+ *
+ * Uses Tanaka et al. (2001), HRmax = 208 - 0.7 x age, rather than the more
+ * familiar 220 - age: the Fox formula systematically underestimates maximum
+ * heart rate in older adults, which is exactly the group this project targets.
+ *
+ * 70% of HRmax is the ceiling for a *sustained* rate in daily activity, not a
+ * training zone. It lands at ~136 bpm at 20 and ~109 bpm at 75, then clamps so
+ * an implausible age cannot produce an unsafe bound.
+ */
+function ageAdjustedHrHigh(age) {
+  const hrMax = 208 - 0.7 * age;
+  const ceiling = Math.round(0.7 * hrMax);
+  return Math.min(140, Math.max(95, ceiling));
+}
+
+export const AGE_MIN = 1;
+export const AGE_MAX = 120;
+
+export const isUsableAge = (age) =>
+  typeof age === 'number' && Number.isFinite(age) && age >= AGE_MIN && age <= AGE_MAX;
+
+/**
+ * Limits in force for a wearer.
+ *
+ * Age may only *tighten* the heart-rate ceiling, never raise it. A sustained
+ * 120 bpm at rest is worth flagging at any age, and letting age relax the bound
+ * would leave the young the least protected by the very rule meant to
+ * personalise their care.
+ *
+ * @param {string} profile  vulnerability category
+ * @param {number} [age]    years; ignored when absent or implausible
+ */
+export function thresholdsFor(profile, age) {
+  const base = PROFILE_THRESHOLDS[profile] || PROFILE_THRESHOLDS.general;
+  if (!isUsableAge(age)) return { ...base, hrHighSource: 'profile' };
+
+  const byAge = ageAdjustedHrHigh(age);
+  if (byAge >= base.hrHigh) return { ...base, hrHighSource: 'profile' };
+  return { ...base, hrHigh: byAge, hrHighSource: 'age' };
+}
 
 /* --------------------------- baseline learning ---------------------------- */
 
 const REST_HR_ALPHA = 0.05; // slow EWMA — a baseline should not chase one bad sample
 
+/**
+ * Samples of rest needed before the learned baseline is trusted for alerting.
+ * Below this the EWMA is still dominated by whatever the first reading was.
+ */
+const BASELINE_MIN_SAMPLES = 60;
+
+/**
+ * How far above the wearer's own resting rate counts as a real excursion.
+ * Chosen wide: normal daily variation, a warm room, or standing up all move
+ * resting HR by 10-20 bpm without meaning anything.
+ */
+const RELATIVE_HR_DELTA = 30;
+
+/** One definition of "at rest", shared by baseline learning and the rules. */
+function isAtRest(reading) {
+  return (
+    reading.motion === 'rest' ||
+    (reading.accelMagnitude != null && Math.abs(reading.accelMagnitude - 1) < 0.08)
+  );
+}
+
+const baselineReady = (s) => s.restingHr != null && s.samples >= BASELINE_MIN_SAMPLES;
+
 function updateBaseline(s, reading) {
   s.samples += 1;
-  const atRest =
-    reading.motion === 'rest' ||
-    (reading.accelMagnitude != null && Math.abs(reading.accelMagnitude - 1) < 0.08);
+  const atRest = isAtRest(reading);
   if (!atRest || reading.heartRate == null || reading.signalOk === false) return;
   // Ignore implausible resting values so a PPG glitch can't poison the baseline.
   if (reading.heartRate < 35 || reading.heartRate > 110) return;
+
+  // Do not learn from an excursion the rules are about to flag. Without this
+  // the EWMA chases the very elevation it exists to detect: at alpha 0.05 a
+  // jump from 55 to 95 bpm drags the baseline to 86 within one 30s sustain
+  // window, shrinking a 40 bpm excursion to 9 and silencing the rule.
+  // Freezing is also the clinically correct call — a resting rate that stays
+  // high is a signal worth continuing to report, not one to normalise away.
+  if (baselineReady(s) && reading.heartRate > s.restingHr + RELATIVE_HR_DELTA) return;
 
   s.restingHr =
     s.restingHr == null
@@ -120,7 +196,7 @@ export function evaluateReading(reading, { device = null, ambient = null } = {})
   const s = deviceState(reading.deviceId);
   updateBaseline(s, reading);
 
-  const t = thresholdsFor(device?.profile);
+  const t = thresholdsFor(device?.profile, device?.age);
   const alerts = [];
   const sustainMs = config.alerts.sustainWindowMs;
 
@@ -203,6 +279,36 @@ export function evaluateReading(reading, { device = null, ambient = null } = {})
     }
   }
 
+  // --- Personal baseline: an excursion above the wearer's own resting rate.
+  //     This is the rule the fixed thresholds cannot express — a wearer who
+  //     rests at 52 bpm sitting at 95 is a 43 bpm excursion that never touches
+  //     the 120 bpm ceiling. Restricted to rest (walking would fire it
+  //     constantly) and to a mature baseline, and deliberately scoped to what
+  //     the absolute rule misses so the two never double-report the same beat.
+  if (
+    reading.heartRate != null &&
+    reading.signalOk !== false &&
+    baselineReady(s) &&
+    isAtRest(reading)
+  ) {
+    const excursion = reading.heartRate - s.restingHr;
+    const elevated = reading.heartRate <= t.hrHigh && excursion > RELATIVE_HR_DELTA;
+    const held = sustainedFor(s, 'hr_above_baseline', elevated, now);
+
+    if (elevated && held >= sustainMs) {
+      push(
+        'hr_above_baseline',
+        'warning',
+        `Heart rate well above your resting rate (${reading.heartRate} bpm)`,
+        `${Math.round(excursion)} bpm above your learned resting rate of ` +
+          `${Math.round(s.restingHr)} bpm while at rest, held ` +
+          `${Math.round(held / 1000)}s. Still under the ${t.hrHigh} bpm ceiling.`
+      );
+    }
+  } else {
+    sustainedFor(s, 'hr_above_baseline', false, now);
+  }
+
   // --- Heat stress: the cross-referencing rule. Prefer the device's own
   //     ambient sensor (it is where the body actually is); fall back to the
   //     weather API when the device has no DHT22 or reports nothing. ---
@@ -260,6 +366,9 @@ export function evaluateReading(reading, { device = null, ambient = null } = {})
     heatBandLabel: heat.band.label,
     strain: heat.strain,
     restingHr: s.restingHr == null ? null : Math.round(s.restingHr),
+    baselineReady: baselineReady(s),
+    hrHigh: t.hrHigh,
+    hrHighSource: t.hrHighSource,
     airQuality: air.label,
     envSource,
     mlScore: ml ? Number(ml.score.toFixed(5)) : null,

@@ -14,7 +14,7 @@ floods and pollution events.
 | | |
 |---|---|
 | **Senses** | Heart rate + SpO₂ (MAX30102), ambient temperature + humidity (DHT22), motion and falls (MPU6050), all on an ESP32 |
-| **Detects** | Tachycardia, bradycardia, hypoxia, falls, heat stress, poor air quality |
+| **Detects** | Tachycardia, bradycardia, hypoxia, falls, heat stress, poor air quality, excursions above the wearer's own resting rate |
 | **Warns** | Live dashboard banner → browser notification → SMS to an emergency contact for critical alerts |
 | **Correlates** | Physiological strain against apparent temperature and AQI — the environmental cross-reference |
 | **Learns** | An on-device autoencoder trained on real ICU patient vitals scores each 30 s window against normal physiology |
@@ -145,7 +145,7 @@ streaming 50 samples/second over WiFi would flatten the battery. The board decid
 | `GET` | `/api/alerts/:deviceId` | Alert log |
 | `POST` | `/api/alerts/:alertId/ack` | Acknowledge an alert |
 | `GET` | `/api/devices` · `/api/devices/:id` | Registered wearers, thresholds, learned baseline |
-| `PUT` | `/api/devices/:id` | Set wearer name, vulnerability profile, emergency contact, location |
+| `PUT` | `/api/devices/:id` | Set wearer name, vulnerability profile, `age`, `sex`, emergency contact, location |
 | `GET` | `/api/health` | Liveness + which store/SMS/weather mode is active |
 
 **Demo controls** (stage scaffolding, isolated in `routes/demo.js`):
@@ -187,11 +187,46 @@ Every vital is optional. A device with a flaky MAX30102 still reports temperatur
 | `hypoxia` | critical | SpO₂ below the profile's critical bound — fires immediately |
 | `hypoxia` | critical | SpO₂ below the warning bound, held 30 s |
 | `fall` | critical | Free fall → impact → 2 s of stillness (decided on-device) |
-| `tachycardia` | warning | HR above the profile bound, held 30 s |
+| `tachycardia` | warning | HR above the ceiling in force, held 30 s |
 | `bradycardia` | warning | HR below the profile bound, held 30 s |
+| `hr_above_baseline` | warning | At rest, HR more than 30 bpm above the wearer's own learned resting rate, held 30 s, while still under the ceiling |
 | `heat_stress` | warning/critical | Heat-index band is dangerous **and** strain ≥ 45 % of reserve |
 | `air_quality` | warning | OpenWeather AQI 5, or PM2.5 > 120 µg/m³ |
 | `ml_anomaly` | warning | Learned model reconstruction error ≥ 1.6× threshold, held 30 s |
+
+### Personalisation
+
+Two mechanisms adjust the rules to the individual, both deterministic and inspectable. Neither is a
+learned model, because a model trained on 53 ICU subjects cannot learn what is normal for a demographic.
+
+**Age tightens the heart-rate ceiling.** With `age` on the device record, the ceiling becomes 70 % of
+Tanaka's maximum (`HRmax = 208 − 0.7 × age`), clamped to 95–140 bpm. Tanaka is used rather than the more
+familiar `220 − age`, which underestimates maximum heart rate in older adults — precisely the group this
+project targets.
+
+| Age | Ceiling | Age | Ceiling |
+|---|---|---|---|
+| 25 | 120 (profile) | 60 | 116 |
+| 40 | 120 (profile) | 78 | 107 |
+
+Age may only **tighten** the ceiling, never raise it: a sustained 120 bpm at rest is worth flagging at any
+age, and letting age relax the bound would leave the young least protected by the rule meant to
+personalise their care. `derived.hrHighSource` reports whether `age` or `profile` won. Age is optional —
+absent, the profile bound applies unchanged.
+
+Sex, height and weight are deliberately **not** used. Normal heart-rate and SpO₂ ranges do not differ
+enough by sex to justify a threshold, and height/weight affect PPG signal quality rather than what counts
+as a normal vital. `sex` is stored for the record; no rule keys off it.
+
+**The wearer's own resting rate is the stronger signal.** A slow EWMA learns resting HR from at-rest
+samples and, once mature (60 samples), `hr_above_baseline` fires on an excursion the fixed ceiling cannot
+express: a wearer who rests at 52 bpm sitting at 95 is a 43 bpm excursion that never approaches 120. The
+rule is scoped to what the absolute rule misses, so the two never double-report the same beat.
+
+Baseline learning **freezes during an excursion**. Without that guard the EWMA chases the elevation it
+exists to detect — at α = 0.05 a jump from 55 to 95 bpm drags the baseline to 86 within one 30 s window,
+shrinking a 40 bpm excursion to 9 and silencing the rule. Freezing is also the clinically correct call: a
+resting rate that stays high is a signal worth continuing to report, not one to normalise away.
 
 The learned model **never suppresses a rule** — it only adds a signal. It is also optional: a clone with no
 `backend/src/ml/model.json` boots, runs every rule, and reports `mlScore: null`. See

@@ -22,6 +22,25 @@ create table if not exists devices (
   updated_at             timestamptz not null default now()
 );
 
+-- Age and sex arrived after the first deployments, so they are added rather
+-- than folded into the create above: an existing database must survive boot.
+-- Both stay nullable. Age tightens the heart-rate ceiling when present and
+-- changes nothing when absent, so an unknown wearer is never worse off.
+alter table devices add column if not exists age smallint;
+alter table devices add column if not exists sex text;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'devices_age_range') then
+    alter table devices add constraint devices_age_range
+      check (age is null or (age between 1 and 120));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'devices_sex_values') then
+    alter table devices add constraint devices_sex_values
+      check (sex is null or sex in ('male', 'female', 'other'));
+  end if;
+end $$;
+
 -- One row per sensor sample. Every vital is nullable: the ESP32 sends whatever
 -- its attached sensors produced, and a flaky MAX30102 must not cost us the
 -- temperature reading.

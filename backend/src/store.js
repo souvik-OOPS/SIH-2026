@@ -286,7 +286,7 @@ export async function acknowledgeAlert(alertId) {
 /* -------------------------------- devices -------------------------------- */
 
 const DEVICE_COLS = `
-  device_id as "deviceId", wearer_name as "wearerName", profile,
+  device_id as "deviceId", wearer_name as "wearerName", profile, age, sex,
   emergency_contact as "emergencyContact",
   emergency_contact_name as "emergencyContactName",
   lat, lon, last_seen as "lastSeen"
@@ -295,6 +295,8 @@ const DEVICE_COLS = `
 const DEVICE_FIELD_TO_COL = {
   wearerName: 'wearer_name',
   profile: 'profile',
+  age: 'age',
+  sex: 'sex',
   emergencyContact: 'emergency_contact',
   emergencyContactName: 'emergency_contact_name',
   lat: 'lat',
@@ -339,6 +341,8 @@ export async function upsertDevice(deviceId, patch = {}) {
     deviceId,
     wearerName: 'Unknown wearer',
     profile: 'general',
+    age: null,
+    sex: null,
   };
   const merged = { ...existing, ...patch, deviceId };
   mem.devices.set(deviceId, merged);
