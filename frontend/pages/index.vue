@@ -1,6 +1,7 @@
 <script setup lang="ts">
 const {
   latest, trail, device, banner, connected, deviceOnline, now,
+  disaster, loadDisasterContext,
   acknowledge, enableNotifications, activeCritical,
 } = useHealth()
 
@@ -59,11 +60,24 @@ const restingHr = computed(() => derived.value?.restingHr ?? null)
 
 const notifState = ref<'unknown' | 'granted' | 'denied'>('unknown')
 
+// Disaster context is enrichment: fetched once on mount and refreshed slowly,
+// never blocking the vitals view. A failure leaves the card in its explicit
+// "unavailable" state rather than hiding it.
+let disasterTimer: ReturnType<typeof setInterval> | null = null
+
 onMounted(() => {
+  loadDisasterContext()
+  disasterTimer = setInterval(loadDisasterContext, 15 * 60 * 1000)
+
   if (typeof Notification !== 'undefined') {
     notifState.value = Notification.permission === 'granted' ? 'granted'
       : Notification.permission === 'denied' ? 'denied' : 'unknown'
   }
+})
+
+onUnmounted(() => {
+  if (disasterTimer) clearInterval(disasterTimer)
+  disasterTimer = null
 })
 
 async function askNotifications() {
@@ -154,6 +168,8 @@ const humidityFoot = computed(() =>
     </header>
 
     <AlertBanner v-if="banner" :alert="banner" @ack="acknowledge" />
+
+    <DisasterContextCard :context="disaster" style="margin-bottom: 14px" />
 
     <div v-if="!latest" class="card">
       <p class="card-title">Waiting for the device</p>

@@ -60,10 +60,47 @@ export interface DeviceInfo {
   deviceId: string
   wearerName?: string
   profile?: string
+  age?: number | null
+  sex?: string | null
   emergencyContact?: string
   emergencyContactName?: string
   online?: boolean
   lastSeen?: string
+}
+
+export interface DisasterAlert {
+  id: string
+  hazard: string
+  disasterType: string
+  severity: 'severe' | 'moderate' | 'minor' | 'unknown'
+  rawSeverity: string | null
+  severityColour: string | null
+  message: string
+  area: string | null
+  issuedBy: string
+  startsAt: string
+  endsAt: string | null
+  distanceKm: number | null
+}
+
+/**
+ * Freshness and provenance are separate on purpose: a bundled sample is still
+ * a sample however recently it was read, so `isSample` — not `freshness` —
+ * decides how the source is labelled.
+ */
+export interface DisasterContext {
+  freshness: 'LIVE' | 'CACHED' | 'STALE' | 'UNAVAILABLE'
+  provenance: string
+  attribution: string
+  isLive: boolean
+  isSample: boolean
+  updatedAt: string | null
+  ageMinutes: number | null
+  highestSeverity: string | null
+  count: number
+  radiusKm: number | null
+  lastError: string | null
+  alerts: DisasterAlert[]
 }
 
 let socket: Socket | null = null
@@ -84,6 +121,7 @@ export function useHealth() {
   const alerts = useState<Alert[]>('hc:alerts', () => [])
   const device = useState<DeviceInfo | null>('hc:device', () => null)
   const banner = useState<Alert | null>('hc:banner', () => null)
+  const disaster = useState<DisasterContext | null>('hc:disaster', () => null)
   const started = useState<boolean>('hc:started', () => false)
   const now = useState<number>('hc:now', () => Date.now())
 
@@ -132,6 +170,23 @@ export function useHealth() {
       device.value = res.device
     } catch {
       device.value = { deviceId }
+    }
+  }
+
+  /**
+   * Official disaster context. Enrichment only — a failure here leaves
+   * `disaster` null and the dashboard renders an explicit "unavailable" state
+   * rather than implying an all-clear.
+   */
+  async function loadDisasterContext() {
+    try {
+      const res = await $fetch<{ context: DisasterContext }>(
+        `${apiBase}/api/disaster-context`,
+        { query: { deviceId, limit: 5 } },
+      )
+      disaster.value = res.context
+    } catch {
+      disaster.value = null
     }
   }
 
@@ -222,6 +277,7 @@ export function useHealth() {
     trail,
     alerts,
     device,
+    disaster,
     banner,
     now,
     unacknowledged,
@@ -230,6 +286,7 @@ export function useHealth() {
     loadHistory,
     loadAlerts,
     loadDevice,
+    loadDisasterContext,
     acknowledge,
     enableNotifications,
   }

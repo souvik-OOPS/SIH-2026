@@ -12,6 +12,7 @@ import historyRoute from './routes/history.js';
 import alertsRoute from './routes/alerts.js';
 import devicesRoute from './routes/devices.js';
 import demoRoute from './routes/demo.js';
+import disasterRoute from './routes/disaster.js';
 
 const app = express();
 
@@ -43,6 +44,7 @@ app.use('/api/history', historyRoute);
 app.use('/api/alerts', alertsRoute);
 app.use('/api/devices', devicesRoute);
 app.use('/api/demo', demoRoute);
+app.use('/api/disaster-context', disasterRoute);
 
 app.use((_req, res) => res.status(404).json({ ok: false, error: 'not found' }));
 

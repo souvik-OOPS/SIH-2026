@@ -34,6 +34,28 @@ export const config = {
     ttlMs: num(process.env.WEATHER_TTL_MS, 10 * 60 * 1000),
   },
 
+  // NDMA SACHET disaster context. Enrichment only: every state of this feed,
+  // including total absence, leaves the health rules working unchanged.
+  disaster: {
+    enabled: process.env.DISASTER_ENABLED !== 'false',
+    url:
+      process.env.SACHET_URL ||
+      'https://sachet.ndma.gov.in/cap_public_website/FetchAllAlertDetails',
+    // Below this age a successful fetch is reported LIVE.
+    liveWindowMs: num(process.env.DISASTER_LIVE_WINDOW_MS, 30 * 60 * 1000),
+    // Past this, cached data is labelled STALE rather than merely CACHED.
+    maxAgeMs: num(process.env.DISASTER_MAX_AGE_MS, 6 * 60 * 60 * 1000),
+    // How often a fetch may be attempted at all.
+    refreshMs: num(process.env.DISASTER_REFRESH_MS, 15 * 60 * 1000),
+    timeoutMs: num(process.env.DISASTER_TIMEOUT_MS, 8000),
+    // Only alerts whose centroid is within this radius of the wearer.
+    radiusKm: num(process.env.DISASTER_RADIUS_KM, 200),
+    language: process.env.DISASTER_LANGUAGE || 'en',
+    // Serve the bundled sample when the network has never succeeded. Always
+    // labelled as a sample; it can never be reported as live.
+    allowSample: process.env.DISASTER_ALLOW_SAMPLE !== 'false',
+  },
+
   sms: {
     provider: (process.env.SMS_PROVIDER || 'console').toLowerCase(),
     emergencyContact: process.env.EMERGENCY_CONTACT || '',
