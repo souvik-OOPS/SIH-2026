@@ -37,12 +37,20 @@ function normalise(body) {
   // accelData may arrive as {x,y,z} or as a precomputed magnitude.
   let accelMagnitude = numOrNull(body.accelMagnitude);
   const a = body.accelData;
-  if (accelMagnitude == null && a && typeof a === 'object') {
+  let accel = null;
+  if (a && typeof a === 'object') {
     const x = numOrNull(a.x);
     const y = numOrNull(a.y);
     const z = numOrNull(a.z);
     if (x != null && y != null && z != null) {
-      accelMagnitude = Math.round(Math.sqrt(x * x + y * y + z * z) * 100) / 100;
+      // Kept in memory for the fall detector's orientation stage, which needs
+      // the gravity direction and cannot recover it from a magnitude. Not
+      // persisted: three more columns per sample buys nothing once the fall
+      // verdict is decided, and the detector is the only consumer.
+      accel = { x, y, z };
+      if (accelMagnitude == null) {
+        accelMagnitude = Math.round(Math.sqrt(x * x + y * y + z * z) * 100) / 100;
+      }
     }
   }
 
@@ -67,6 +75,7 @@ function normalise(body) {
       ambientTemp: inRange(numOrNull(body.ambientTemp), -30, 70),
       humidity: inRange(numOrNull(body.humidity), 0, 100),
       accelMagnitude,
+      accel,
       fallDetected: body.fallDetected === true || body.fallDetected === 'true',
       motion,
       signalOk: body.signalOk === undefined ? true : body.signalOk === true || body.signalOk === 'true',

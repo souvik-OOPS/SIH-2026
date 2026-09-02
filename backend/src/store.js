@@ -374,3 +374,96 @@ export async function listDevices() {
   }
   return [...mem.devices.values()];
 }
+
+/* ------------------------------- privacy --------------------------------- */
+
+/**
+ * What is actually stored for one wearer.
+ *
+ * Backs the privacy screen. Counts and time bounds only — the point is to let
+ * someone see the shape of what is held without the screen itself becoming
+ * another place their health history is displayed.
+ */
+export async function summariseStoredData(deviceId) {
+  if (usingPg) {
+    try {
+      const [readings, alerts, device] = await Promise.all([
+        q(
+          `select count(*)::int as n,
+                  min("timestamp") as "oldest", max("timestamp") as "newest"
+             from readings where device_id = $1`,
+          [deviceId]
+        ),
+        q(`select count(*)::int as n from alerts where device_id = $1`, [deviceId]),
+        getDevice(deviceId),
+      ]);
+      return {
+        deviceId,
+        storage: 'postgres',
+        readings: readings.rows[0]?.n ?? 0,
+        oldestReading: readings.rows[0]?.oldest ?? null,
+        newestReading: readings.rows[0]?.newest ?? null,
+        alerts: alerts.rows[0]?.n ?? 0,
+        deviceRecord: device ? Object.keys(device).filter((k) => device[k] != null) : [],
+      };
+    } catch {
+      /* fall through to memory */
+    }
+  }
+
+  const readings = mem.readings.filter((r) => r.deviceId === deviceId);
+  const alerts = mem.alerts.filter((a) => a.deviceId === deviceId);
+  const device = mem.devices.get(deviceId) ?? null;
+  const times = readings.map((r) => new Date(r.timestamp).getTime()).filter(Number.isFinite);
+
+  return {
+    deviceId,
+    storage: 'memory',
+    readings: readings.length,
+    oldestReading: times.length ? new Date(Math.min(...times)) : null,
+    newestReading: times.length ? new Date(Math.max(...times)) : null,
+    alerts: alerts.length,
+    deviceRecord: device ? Object.keys(device).filter((k) => device[k] != null) : [],
+  };
+}
+
+/**
+ * Deletes stored health data for one wearer.
+ *
+ * Readings and alerts always go. The device record is kept unless
+ * `includeProfile`, so a wearer can wipe their measurements without having to
+ * re-register the band and lose their emergency contacts.
+ *
+ * @returns {Promise<{readings:number, alerts:number, deviceRemoved:boolean}>}
+ */
+export async function deleteDeviceData(deviceId, { includeProfile = false } = {}) {
+  if (usingPg) {
+    try {
+      const readings = await q(`delete from readings where device_id = $1`, [deviceId]);
+      const alerts = await q(`delete from alerts where device_id = $1`, [deviceId]);
+      let deviceRemoved = false;
+      if (includeProfile) {
+        const d = await q(`delete from devices where device_id = $1`, [deviceId]);
+        deviceRemoved = (d.rowCount ?? 0) > 0;
+      }
+      return {
+        readings: readings.rowCount ?? 0,
+        alerts: alerts.rowCount ?? 0,
+        deviceRemoved,
+      };
+    } catch {
+      /* fall through to memory */
+    }
+  }
+
+  const before = { readings: mem.readings.length, alerts: mem.alerts.length };
+  mem.readings = mem.readings.filter((r) => r.deviceId !== deviceId);
+  mem.alerts = mem.alerts.filter((a) => a.deviceId !== deviceId);
+  const deviceRemoved = includeProfile ? mem.devices.delete(deviceId) : false;
+
+  return {
+    readings: before.readings - mem.readings.length,
+    alerts: before.alerts - mem.alerts.length,
+    deviceRemoved,
+  };
+}

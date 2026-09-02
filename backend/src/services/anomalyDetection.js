@@ -1,6 +1,8 @@
 import config from '../config.js';
 import { assessHeatStress, assessAirQuality, heatIndexC } from './heatStress.js';
 import { scoreReading, resetMlBuffer } from './mlDetector.js';
+import { evaluateFall, resetFallState } from './fallDetection.js';
+import { openCheckIn, checkInStatus, resetNonResponse } from './nonResponse.js';
 
 /**
  * Rule-based anomaly detection (v1).
@@ -36,6 +38,8 @@ export function resetDeviceState(deviceId) {
   if (deviceId) state.delete(deviceId);
   else state.clear();
   resetMlBuffer(deviceId);
+  resetFallState(deviceId);
+  resetNonResponse(deviceId);
 }
 
 /**
@@ -221,10 +225,37 @@ export function evaluateReading(reading, { device = null, ambient = null } = {})
     });
   };
 
-  // --- Fall: fires immediately, no sustain window. A fall is an event. ---
-  if (reading.fallDetected) {
-    const g = typeof reading.accelMagnitude === 'number' ? reading.accelMagnitude.toFixed(1) : '?';
-    push('fall', 'critical', 'Possible fall detected', `Impact of ${g} g followed by no movement.`);
+  // --- Fall: an event, so no sustain window. The detector walks impact ->
+  //     orientation -> stillness rather than trusting one spike, and the same
+  //     code runs for replay fixtures, the simulator and live hardware. ---
+  const fall = evaluateFall(reading, { now });
+  if (fall.fall) {
+    push(
+      'fall',
+      'critical',
+      'Possible fall detected',
+      `${fall.reason} Confidence ${Math.round(fall.confidence * 100)}%.`
+    );
+    // Ask before escalating. The wearer gets the countdown to say they are fine.
+    openCheckIn(reading.deviceId, {
+      reason: 'Possible fall detected',
+      at: new Date(now),
+      fall: { reason: fall.reason, confidence: fall.confidence, stages: fall.stages },
+    });
+  }
+
+  const checkIn = checkInStatus(reading.deviceId, { now: new Date(now) });
+  if (checkIn.state === 'escalated' && !s.escalationAnnounced) {
+    s.escalationAnnounced = true;
+    push(
+      'fall_no_response',
+      'critical',
+      'No response after a possible fall',
+      `The wearer did not respond within ${checkIn.windowSeconds}s of the check-in.`
+    );
+  }
+  if (checkIn.state === 'none' || checkIn.state === 'resolved') {
+    s.escalationAnnounced = false;
   }
 
   // --- SpO2: hypoxia. Critical below the lower bound, with no sustain window
@@ -367,6 +398,14 @@ export function evaluateReading(reading, { device = null, ambient = null } = {})
     strain: heat.strain,
     restingHr: s.restingHr == null ? null : Math.round(s.restingHr),
     baselineReady: baselineReady(s),
+    fall: fall.fall
+      ? { detected: true, confidence: fall.confidence, stages: fall.stages, source: fall.source }
+      : { detected: false },
+    checkIn: {
+      state: checkIn.state,
+      remainingSeconds: checkIn.remainingSeconds ?? 0,
+      windowSeconds: checkIn.windowSeconds ?? null,
+    },
     hrHigh: t.hrHigh,
     hrHighSource: t.hrHighSource,
     airQuality: air.label,

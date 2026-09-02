@@ -34,6 +34,30 @@ export const config = {
     ttlMs: num(process.env.WEATHER_TTL_MS, 10 * 60 * 1000),
   },
 
+  // Multi-stage fall detection. Every threshold is tunable because the right
+  // values depend on where the device is worn, and a wrist and a belt clip do
+  // not produce the same impact profile.
+  fall: {
+    // Below this the device is close to weightless: a drop, not a movement.
+    freeFallG: num(process.env.FALL_FREEFALL_G, 0.45),
+    // Free fall only corroborates an impact if it immediately preceded it.
+    freeFallWindowMs: num(process.env.FALL_FREEFALL_WINDOW_MS, 2000),
+    // Impact spike. A brisk sit-down reaches ~1.6 g, so this sits above it.
+    impactG: num(process.env.FALL_IMPACT_G, 2.5),
+    // Gravity direction change that counts as having landed differently.
+    orientationDeg: num(process.env.FALL_ORIENTATION_DEG, 30),
+    // How close to 1 g counts as "not moving".
+    stillnessBandG: num(process.env.FALL_STILLNESS_BAND_G, 0.12),
+    // Stillness this long after an impact is what separates a fall from a knock.
+    stillnessMs: num(process.env.FALL_STILLNESS_MS, 2000),
+    // Give up on a candidate impact after this long without stillness.
+    verificationMs: num(process.env.FALL_VERIFICATION_MS, 12000),
+    // Rolling history used to pick a pre-impact orientation reference.
+    windowMs: num(process.env.FALL_WINDOW_MS, 10000),
+    // "Are you okay?" countdown before escalating.
+    responseWindowMs: num(process.env.FALL_RESPONSE_WINDOW_MS, 30000),
+  },
+
   // NDMA SACHET disaster context. Enrichment only: every state of this feed,
   // including total absence, leaves the health rules working unchanged.
   disaster: {
