@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart' show rootBundle;
 
 import '../core/models/telemetry_frame.dart';
+import '../core/telemetry/telemetry_parser.dart';
 import '../core/telemetry/telemetry_source.dart';
 
 typedef AssetTextLoader = Future<String> Function(String assetPath);
@@ -99,7 +100,7 @@ class ReplayTelemetrySource implements TelemetrySource, DemoTelemetryControls {
     final frames = <TelemetryFrame>[];
     for (final rawFrame in rawFrames) {
       if (rawFrame is! Map) continue;
-      final frame = TelemetryFrame.tryParseMap(
+      final frame = TelemetryParser.tryParseMap(
         Map<String, dynamic>.from(rawFrame),
         sourceType: TelemetrySourceType.replay,
         connectivity: TelemetryConnectivity.connected,

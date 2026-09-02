@@ -20,8 +20,8 @@ class AssistantStatusBadge extends StatelessWidget {
   final bool usesLlm;
 
   static Color riskColour(RiskLevel level) => switch (level) {
-    RiskLevel.emergency => const Color(0xFFFF7482),
-    RiskLevel.act => const Color(0xFFFF9E6B),
+    RiskLevel.critical => const Color(0xFFFF7482),
+    RiskLevel.warning => const Color(0xFFFF9E6B),
     RiskLevel.watch => const Color(0xFFF6C859),
     RiskLevel.normal => const Color(0xFF49D6C7),
     RiskLevel.notComputed => const Color(0xFF91AAB5),

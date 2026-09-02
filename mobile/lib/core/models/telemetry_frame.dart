@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:math' as math;
 
 enum TelemetrySourceType { replay, ble }
@@ -31,10 +30,10 @@ extension ContactStateLabel on ContactState {
   };
 }
 
-/// A single normalized packet, shared by replay and future BLE telemetry.
+/// A single normalized packet, shared by replay and live BLE telemetry.
 ///
-/// The parser accepts the compact ESP32 contract (`hr`, `o2`, `t`, `h`, `ax`)
-/// as well as the replay schema and descriptive field names used by tests.
+/// Values absent from the current device protocol stay null. This lets future
+/// sensors be introduced without manufacturing values on the phone.
 class TelemetryFrame {
   const TelemetryFrame({
     required this.timestamp,
@@ -53,6 +52,13 @@ class TelemetryFrame {
     required this.sourceType,
     required this.connectivity,
     required this.sosPressed,
+    this.skinTemperatureC,
+    this.pm1MicrogramsPerM3,
+    this.pm25MicrogramsPerM3,
+    this.pm10MicrogramsPerM3,
+    this.batteryPercent,
+    this.movementDetected,
+    this.fallDetected,
   });
 
   final DateTime timestamp;
@@ -73,6 +79,16 @@ class TelemetryFrame {
   final TelemetrySourceType sourceType;
   final TelemetryConnectivity connectivity;
   final bool sosPressed;
+
+  /// Optional device capabilities. The Day 2 ESP32 packet does not currently
+  /// supply these, so callers must treat null as unavailable rather than zero.
+  final double? skinTemperatureC;
+  final double? pm1MicrogramsPerM3;
+  final double? pm25MicrogramsPerM3;
+  final double? pm10MicrogramsPerM3;
+  final double? batteryPercent;
+  final bool? movementDetected;
+  final bool? fallDetected;
 
   double? get accelerometerMagnitude {
     final x = accelerometerX;
@@ -103,117 +119,13 @@ class TelemetryFrame {
       sourceType: sourceType,
       connectivity: connectivity ?? this.connectivity,
       sosPressed: sosPressed,
+      skinTemperatureC: skinTemperatureC,
+      pm1MicrogramsPerM3: pm1MicrogramsPerM3,
+      pm25MicrogramsPerM3: pm25MicrogramsPerM3,
+      pm10MicrogramsPerM3: pm10MicrogramsPerM3,
+      batteryPercent: batteryPercent,
+      movementDetected: movementDetected,
+      fallDetected: fallDetected,
     );
-  }
-
-  static TelemetryFrame? tryParseJson(
-    String payload, {
-    required TelemetrySourceType sourceType,
-    required TelemetryConnectivity connectivity,
-  }) {
-    try {
-      final decoded = jsonDecode(payload);
-      if (decoded is! Map) return null;
-      return tryParseMap(
-        Map<String, dynamic>.from(decoded),
-        sourceType: sourceType,
-        connectivity: connectivity,
-      );
-    } on FormatException {
-      return null;
-    }
-  }
-
-  static TelemetryFrame? tryParseMap(
-    Map<String, dynamic> payload, {
-    required TelemetrySourceType sourceType,
-    required TelemetryConnectivity connectivity,
-  }) {
-    final timestamp = _timestamp(payload['ts'] ?? payload['timestamp']);
-    final ambientTemperature = _number(
-      payload['t'] ?? payload['at'] ?? payload['ambientTemperatureC'],
-    );
-    final humidity = _number(
-      payload['h'] ?? payload['rh'] ?? payload['humidityPercent'],
-    );
-    final ax = _number(payload['ax'] ?? payload['accelerometerX']);
-    final ay = _number(payload['ay'] ?? payload['accelerometerY']);
-    final az = _number(payload['az'] ?? payload['accelerometerZ']);
-    final gx = _number(payload['gx'] ?? payload['gyroscopeX']);
-    final gy = _number(payload['gy'] ?? payload['gyroscopeY']);
-    final gz = _number(payload['gz'] ?? payload['gyroscopeZ']);
-    final rawQuality = _number(payload['q'] ?? payload['signalQuality']);
-
-    if (timestamp == null || rawQuality == null) {
-      return null;
-    }
-
-    final normalizedQuality = rawQuality > 1 ? rawQuality / 100 : rawQuality;
-    if (!normalizedQuality.isFinite) return null;
-
-    return TelemetryFrame(
-      timestamp: timestamp,
-      heartRateBpm: _number(payload['hr'] ?? payload['heartRateBpm']),
-      spo2Percent: _number(
-        payload['spo2'] ?? payload['o2'] ?? payload['spo2Percent'],
-      ),
-      ambientTemperatureC: ambientTemperature,
-      humidityPercent: humidity,
-      accelerometerX: ax,
-      accelerometerY: ay,
-      accelerometerZ: az,
-      gyroscopeX: gx,
-      gyroscopeY: gy,
-      gyroscopeZ: gz,
-      signalQuality: normalizedQuality.clamp(0, 1).toDouble(),
-      contactState: _contactState(
-        payload['contact'] ?? payload['finger'] ?? payload['f'],
-      ),
-      sourceType: sourceType,
-      connectivity: connectivity,
-      sosPressed: _bool(payload['sos']),
-    );
-  }
-
-  static double? _number(Object? value) {
-    if (value is num && value.isFinite) return value.toDouble();
-    if (value is String) {
-      final parsed = double.tryParse(value);
-      return parsed != null && parsed.isFinite ? parsed : null;
-    }
-    return null;
-  }
-
-  static DateTime? _timestamp(Object? value) {
-    if (value is num) {
-      final milliseconds = value.abs() > 100000000000
-          ? value.toInt()
-          : (value * 1000).round();
-      return DateTime.fromMillisecondsSinceEpoch(milliseconds, isUtc: true);
-    }
-    if (value is String) {
-      return DateTime.tryParse(value)?.toUtc();
-    }
-    return null;
-  }
-
-  static ContactState _contactState(Object? value) {
-    return switch (value?.toString().toLowerCase()) {
-      'finger' || 'detected' || 'true' || '1' => ContactState.detected,
-      'no_finger' ||
-      'no-finger' ||
-      'missing' ||
-      'false' ||
-      '0' => ContactState.noFinger,
-      _ => ContactState.unknown,
-    };
-  }
-
-  static bool _bool(Object? value) {
-    return value is bool
-        ? value
-        : value is num
-        ? value != 0
-        : value?.toString().toLowerCase() == 'true';
   }
 }

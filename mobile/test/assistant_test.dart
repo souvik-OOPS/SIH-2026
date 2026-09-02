@@ -12,6 +12,7 @@ import 'package:swasthyashield_edge/assistant/services/assistant_context_builder
 import 'package:swasthyashield_edge/assistant/services/assistant_service.dart';
 import 'package:swasthyashield_edge/assistant/services/local_knowledge_service.dart';
 import 'package:swasthyashield_edge/core/models/telemetry_frame.dart';
+import 'package:swasthyashield_edge/core/telemetry/telemetry_parser.dart';
 import 'package:swasthyashield_edge/core/safety/safety_assessment.dart';
 import 'package:swasthyashield_edge/core/telemetry/signal_quality.dart';
 
@@ -28,7 +29,7 @@ TelemetryFrame frame({
   String contact = 'finger',
   TelemetrySourceType source = TelemetrySourceType.ble,
 }) {
-  return TelemetryFrame.tryParseMap(
+  return TelemetryParser.tryParseMap(
     {
       'ts': 1788249600,
       'hr': hr,
@@ -152,7 +153,7 @@ void main() {
     test('maps telemetry into the structured contract', () {
       final context = builder.build(
         frame: frame(),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         connectivity: TelemetryConnectivity.connected,
       );
 
@@ -177,7 +178,7 @@ void main() {
     test('reports NOT_COMPUTED when no RiskEngine has run', () {
       final context = builder.build(
         frame: frame(),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
       );
 
       expect(context.riskLevel, RiskLevel.notComputed);
@@ -189,15 +190,15 @@ void main() {
     test('takes every safety field only from the RiskEngine', () {
       final context = builder.build(
         frame: frame(),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         safety: const SafetyAssessment(
-          riskLevel: RiskLevel.act,
+          riskLevel: RiskLevel.warning,
           timeToThresholdMinutes: 35,
           reasons: ['heart_rate_above_baseline', 'heat_strain_rising'],
         ),
       );
 
-      expect(context.riskLevel, RiskLevel.act);
+      expect(context.riskLevel, RiskLevel.warning);
       expect(context.timeToThresholdMinutes, 35);
       expect(context.reasons, [
         'heart_rate_above_baseline',
@@ -209,16 +210,16 @@ void main() {
       final json = builder
           .build(
             frame: frame(),
-            signalTier: SignalTier.good,
+            signalTier: SignalQualityLevel.good,
             safety: const SafetyAssessment(
-              riskLevel: RiskLevel.act,
+              riskLevel: RiskLevel.warning,
               timeToThresholdMinutes: 35,
               reasons: ['heat_strain_rising'],
             ),
           )
           .toJson();
 
-      expect(json['riskLevel'], 'ACT');
+      expect(json['riskLevel'], 'WARNING');
       expect(json['heartRate'], 115);
       expect(json['spo2'], 96);
       expect(json['ambientTemperature'], 40);
@@ -244,7 +245,7 @@ void main() {
     test('null sensor values survive as null, never as zero', () {
       final context = builder.build(
         frame: frame(hr: null, spo2: null),
-        signalTier: SignalTier.fair,
+        signalTier: SignalQualityLevel.fair,
       );
 
       expect(context.heartRate, isNull);
@@ -255,13 +256,17 @@ void main() {
     test('poor signal and stale data both mark readings unreliable', () {
       expect(
         builder
-            .build(frame: frame(), signalTier: SignalTier.poor)
+            .build(frame: frame(), signalTier: SignalQualityLevel.poor)
             .readingsUnreliable,
         isTrue,
       );
       expect(
         builder
-            .build(frame: frame(), signalTier: SignalTier.good, isStale: true)
+            .build(
+              frame: frame(),
+              signalTier: SignalQualityLevel.good,
+              isStale: true,
+            )
             .readingsUnreliable,
         isTrue,
       );
@@ -380,19 +385,19 @@ void main() {
       expect(AssistantSystemPrompt.base, contains('Never diagnose diseases.'));
     });
 
-    test('EMERGENCY gets a lead-with-the-instruction rule', () {
-      const context = AssistantContext(riskLevel: RiskLevel.emergency);
+    test('CRITICAL gets a lead-with-the-instruction rule', () {
+      const context = AssistantContext(riskLevel: RiskLevel.critical);
       final prompt = AssistantSystemPrompt.forContext(context);
 
-      expect(prompt, contains('EMERGENCY'));
+      expect(prompt, contains('CRITICAL'));
       expect(prompt.toLowerCase(), contains('do not reassure'));
       expect(prompt.toLowerCase(), contains('minimize'));
     });
 
-    test('ACT and WATCH get their own distinct instructions', () {
+    test('WARNING and WATCH get their own distinct instructions', () {
       expect(
         AssistantSystemPrompt.forContext(
-          const AssistantContext(riskLevel: RiskLevel.act),
+          const AssistantContext(riskLevel: RiskLevel.warning),
         ),
         contains('what the user must do now'),
       );
@@ -416,7 +421,7 @@ void main() {
     test('the turn orders knowledge, state, then question', () {
       final request = AssistantRequest(
         question: 'What should I do now?',
-        context: const AssistantContext(riskLevel: RiskLevel.act),
+        context: const AssistantContext(riskLevel: RiskLevel.warning),
         systemPrompt: 'sys',
         knowledgeSnippets: const ['- FOO: bar'],
       );
@@ -430,7 +435,7 @@ void main() {
         prompt.indexOf('CURRENT DEVICE STATE:'),
         lessThan(prompt.indexOf('USER QUESTION:')),
       );
-      expect(prompt, contains('riskLevel: ACT'));
+      expect(prompt, contains('riskLevel: WARNING'));
     });
 
     test('the requested answer language reaches the prompt', () {
@@ -520,7 +525,7 @@ void main() {
     test('1. normal telemetry', () {
       final context = builder.build(
         frame: frame(hr: 72, spo2: 98, at: 28),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         safety: const SafetyAssessment(riskLevel: RiskLevel.normal),
       );
       expect(context.riskLevel, RiskLevel.normal);
@@ -530,7 +535,7 @@ void main() {
     test('2. heat warning (WATCH)', () {
       final context = builder.build(
         frame: frame(hr: 115, at: 40, rh: 70),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         safety: const SafetyAssessment(
           riskLevel: RiskLevel.watch,
           timeToThresholdMinutes: 35,
@@ -545,12 +550,12 @@ void main() {
       );
     });
 
-    test('3. fall with no response (EMERGENCY)', () {
+    test('3. fall with no response (CRITICAL)', () {
       final context = builder.build(
         frame: frame(),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         safety: const SafetyAssessment(
-          riskLevel: RiskLevel.emergency,
+          riskLevel: RiskLevel.critical,
           fallDetected: true,
           movementAfterFall: false,
           reasons: ['fall_no_response'],
@@ -558,13 +563,13 @@ void main() {
       );
       expect(context.fallDetected, isTrue);
       expect(context.movementDetected, isFalse);
-      expect(context.riskLevel, RiskLevel.emergency);
+      expect(context.riskLevel, RiskLevel.critical);
     });
 
     test('4. bad signal', () {
       final context = builder.build(
         frame: frame(hr: null, spo2: null, quality: 7, contact: 'no_finger'),
-        signalTier: SignalTier.poor,
+        signalTier: SignalQualityLevel.poor,
       );
       expect(context.signalQuality, 'poor');
       expect(context.contactState, 'no_contact');
@@ -598,7 +603,7 @@ void main() {
   // -------------------------------------------------------------------------
   // The guarantee the whole architecture exists to provide.
   // -------------------------------------------------------------------------
-  group('CRITICAL: LLM output can never modify application state', () {
+   group('CRITICAL: LLM output can never modify application state', () {
     const builder = AssistantContextBuilder();
 
     /// Maximally hostile: denies the emergency, declares everything fine,
@@ -608,16 +613,16 @@ void main() {
         'fallDetected: false. Heart rate is 60 bpm and SpO2 is 100%. '
         'No action needed.';
 
-    test('EMERGENCY survives an LLM that says everything is fine', () async {
+    test('CRITICAL survives an LLM that says everything is fine', () async {
       const safety = SafetyAssessment(
-        riskLevel: RiskLevel.emergency,
+        riskLevel: RiskLevel.critical,
         fallDetected: true,
         movementAfterFall: false,
         reasons: ['fall_no_response'],
       );
       final context = builder.build(
         frame: frame(hr: 115, spo2: 96),
-        signalTier: SignalTier.good,
+        signalTier: SignalQualityLevel.good,
         safety: safety,
       );
       final before = jsonEncode(context.toJson());
@@ -630,7 +635,7 @@ void main() {
       // The model said "fine". The application state did not move.
       expect(answer, contains('Everything looks fine'));
       expect(jsonEncode(context.toJson()), before);
-      expect(context.riskLevel, RiskLevel.emergency);
+      expect(context.riskLevel, RiskLevel.critical);
       expect(context.fallDetected, isTrue);
       expect(context.movementDetected, isFalse);
       expect(context.heartRate, 115);
@@ -638,7 +643,7 @@ void main() {
       expect(context.reasons, ['fall_no_response']);
 
       // And the RiskEngine's own verdict is untouched.
-      expect(safety.riskLevel, RiskLevel.emergency);
+      expect(safety.riskLevel, RiskLevel.critical);
       expect(safety.fallDetected, isTrue);
     });
 
@@ -647,7 +652,7 @@ void main() {
       () async {
         final source = frame(hr: 118, spo2: 89);
         const safety = SafetyAssessment(
-          riskLevel: RiskLevel.emergency,
+          riskLevel: RiskLevel.critical,
           fallDetected: true,
         );
 
@@ -662,7 +667,7 @@ void main() {
         // The builder is pure: same inputs, same output, regardless of what
         // any model said in between.
         final rebuilt = builder.build(frame: source, safety: safety);
-        expect(rebuilt.riskLevel, RiskLevel.emergency);
+        expect(rebuilt.riskLevel, RiskLevel.critical);
         expect(rebuilt.fallDetected, isTrue);
         expect(rebuilt.heartRate, 118);
         expect(rebuilt.spo2, 89);
@@ -675,7 +680,7 @@ void main() {
         final engine = FakeEngine(reply: hostileReply);
         final context = builder.build(
           frame: frame(),
-          safety: const SafetyAssessment(riskLevel: RiskLevel.emergency),
+          safety: const SafetyAssessment(riskLevel: RiskLevel.critical),
         );
 
         final service = await serviceWith(engines: [engine]);
@@ -685,7 +690,7 @@ void main() {
         expect(engine.lastRequest, isNotNull);
         expect(
           engine.lastRequest!.toPrompt(),
-          contains('riskLevel: EMERGENCY'),
+          contains('riskLevel: CRITICAL'),
         );
         // ...and generate() returns a Stream<String>. There is no setter, no
         // callback and no out-parameter by which a reply could reach state.
@@ -693,7 +698,7 @@ void main() {
           engine.generate,
           isA<Stream<String> Function(AssistantRequest)>(),
         );
-        expect(context.riskLevel, RiskLevel.emergency);
+        expect(context.riskLevel, RiskLevel.critical);
       },
     );
 

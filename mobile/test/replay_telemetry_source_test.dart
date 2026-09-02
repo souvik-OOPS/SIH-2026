@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:swasthyashield_edge/core/models/telemetry_frame.dart';
+import 'package:swasthyashield_edge/core/telemetry/telemetry_parser.dart';
 import 'package:swasthyashield_edge/core/telemetry/telemetry_source.dart';
 import 'package:swasthyashield_edge/services/replay_telemetry_source.dart';
 
@@ -119,7 +120,7 @@ void main() {
       final parsed = rawFrames
           .whereType<Map<String, dynamic>>()
           .map(
-            (frame) => TelemetryFrame.tryParseMap(
+            (frame) => TelemetryParser.tryParseMap(
               frame,
               sourceType: TelemetrySourceType.replay,
               connectivity: TelemetryConnectivity.connected,

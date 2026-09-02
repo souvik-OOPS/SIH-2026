@@ -20,7 +20,7 @@ class AssistantContextBuilder {
 
   AssistantContext build({
     TelemetryFrame? frame,
-    SignalTier? signalTier,
+    SignalQualityLevel? signalTier,
     TelemetryConnectivity connectivity = TelemetryConnectivity.disconnected,
     bool isStale = false,
     SafetyAssessment? safety,
@@ -56,11 +56,12 @@ class AssistantContextBuilder {
     );
   }
 
-  static String _signalLabel(SignalTier? tier) => switch (tier) {
-    SignalTier.good => 'good',
-    SignalTier.fair => 'fair',
-    SignalTier.poor => 'poor',
-    SignalTier.reacquiring => 'reacquiring',
+  static String _signalLabel(SignalQualityLevel? tier) => switch (tier) {
+    SignalQualityLevel.excellent => 'excellent',
+    SignalQualityLevel.good => 'good',
+    SignalQualityLevel.fair => 'fair',
+    SignalQualityLevel.poor => 'poor',
+    SignalQualityLevel.invalid => 'invalid',
     null => 'unknown',
   };
 

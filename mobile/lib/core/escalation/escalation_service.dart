@@ -58,10 +58,11 @@ class EscalationReport {
 /// exactly when escalation matters most.
 class EscalationService extends ChangeNotifier {
   EscalationService({
-    required this._gateway,
+    required SmsGateway gateway,
     this.cooldown = const Duration(minutes: 5),
-    this._dryRun = false,
-  });
+    bool dryRun = false,
+  }) : _gateway = gateway,
+       _dryRun = dryRun;
 
   final SmsGateway _gateway;
 

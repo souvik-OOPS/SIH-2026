@@ -5,6 +5,8 @@ import '../../assistant/screens/assistant_screen.dart';
 import '../../assistant/services/assistant_service.dart';
 import '../../core/escalation/escalation_service.dart';
 import '../../core/models/telemetry_frame.dart';
+import '../../core/theme/app_theme.dart';
+import '../../core/safety/safety_assessment.dart';
 import '../../core/telemetry/signal_quality.dart';
 import '../../core/telemetry/telemetry_source.dart';
 import '../escalation/emergency_contacts_sheet.dart';
@@ -20,6 +22,7 @@ class DashboardScreen extends StatelessWidget {
     required this.onContactsChanged,
     required this.onConnectLiveBle,
     required this.onReturnToReplay,
+    this.onToggleTheme,
   });
 
   final TelemetrySession session;
@@ -29,6 +32,9 @@ class DashboardScreen extends StatelessWidget {
   final Future<void> Function() onContactsChanged;
   final Future<void> Function() onConnectLiveBle;
   final Future<void> Function() onReturnToReplay;
+
+  /// Optional so the screen still builds anywhere it is used without one.
+  final VoidCallback? onToggleTheme;
 
   @override
   Widget build(BuildContext context) {
@@ -56,6 +62,16 @@ class DashboardScreen extends StatelessWidget {
               ],
             ),
             actions: [
+              if (onToggleTheme != null)
+                IconButton(
+                  tooltip: 'Light / dark',
+                  icon: Icon(
+                    Theme.of(context).brightness == Brightness.dark
+                        ? Icons.light_mode_outlined
+                        : Icons.dark_mode_outlined,
+                  ),
+                  onPressed: onToggleTheme,
+                ),
               IconButton(
                 tooltip: 'Assistant',
                 icon: const Icon(Icons.chat_bubble_outline),
@@ -402,8 +418,12 @@ class _DashboardBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tier = session.signalTier;
-    final signalColour = _tierColour(tier);
+    final assessment = session.signalAssessment;
+    final safety = session.safetyAssessment;
+    final trust = safety?.sensorTrust;
+    final signalColour = trust == null
+        ? _signalQualityColour(assessment.level)
+        : _sensorTrustColour(trust.state);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       children: [
@@ -441,52 +461,53 @@ class _DashboardBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 18),
-        const _RiskPlaceholderCard(),
+        _RiskCard(assessment: safety),
         const SizedBox(height: 20),
         Text('LIVE VITALS', style: _sectionStyle),
         const SizedBox(height: 10),
+        _HeroVital(
+          label: 'HEART RATE',
+          value: frame.heartRateBpm?.toStringAsFixed(0) ?? '—',
+          unit: 'BPM',
+        ),
+        const SizedBox(height: 12),
         GridView.count(
-          crossAxisCount: 2,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: 1.5,
+          crossAxisCount: 3,
+          crossAxisSpacing: 10,
+          mainAxisSpacing: 10,
+          childAspectRatio: 0.92,
           physics: const NeverScrollableScrollPhysics(),
           shrinkWrap: true,
           children: [
-            _VitalTile(
-              icon: Icons.favorite_outline,
-              label: 'HEART RATE',
-              value: frame.heartRateBpm?.toStringAsFixed(0) ?? '—',
-              unit: 'BPM',
-              accent: const Color(0xFFFF7482),
-            ),
             _VitalTile(
               icon: Icons.water_drop_outlined,
               label: 'SpO₂',
               value: frame.spo2Percent?.toStringAsFixed(0) ?? '—',
               unit: '%',
-              accent: const Color(0xFF7FC8FF),
             ),
             _VitalTile(
               icon: Icons.device_thermostat_outlined,
-              label: 'AMBIENT TEMP',
+              label: 'AIR TEMP',
               value: frame.ambientTemperatureC?.toStringAsFixed(1) ?? '--',
               unit: '°C',
-              accent: const Color(0xFFF6C859),
             ),
             _VitalTile(
               icon: Icons.opacity_outlined,
               label: 'HUMIDITY',
               value: frame.humidityPercent?.toStringAsFixed(0) ?? '--',
               unit: '%',
-              accent: const Color(0xFF9FDDC5),
             ),
           ],
         ),
         const SizedBox(height: 22),
         Text('SENSOR STATUS', style: _sectionStyle),
         const SizedBox(height: 10),
-        _SensorStatusCard(frame: frame, signalColour: signalColour, tier: tier),
+        _SensorStatusCard(
+          frame: frame,
+          signalColour: signalColour,
+          assessment: assessment,
+          trust: trust,
+        ),
         const SizedBox(height: 22),
         Text('EMERGENCY', style: _sectionStyle),
         const SizedBox(height: 10),
@@ -498,7 +519,7 @@ class _DashboardBody extends StatelessWidget {
         const SizedBox(height: 22),
         Text('EVENTS & ALERTS', style: _sectionStyle),
         const SizedBox(height: 10),
-        _EventPlaceholder(frame: frame),
+        _EventCard(frame: frame, assessment: safety),
       ],
     );
   }
@@ -511,11 +532,70 @@ const _sectionStyle = TextStyle(
   color: Color(0xFF91AAB5),
 );
 
-class _RiskPlaceholderCard extends StatelessWidget {
-  const _RiskPlaceholderCard();
+class _RiskCard extends StatelessWidget {
+  const _RiskCard({required this.assessment});
+
+  final SafetyAssessment? assessment;
 
   @override
   Widget build(BuildContext context) {
+    final safety = assessment;
+    if (safety != null) {
+      final colour = _riskColour(safety.riskLevel);
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: const Color(0xFF102833),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: colour.withValues(alpha: 0.55)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.shield_outlined, size: 42, color: colour),
+            const SizedBox(width: 15),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('PERSONAL RISK', style: _sectionStyle),
+                  const SizedBox(height: 3),
+                  Text(
+                    'RISK ${safety.score} - ${safety.riskLevel.wireValue}',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      color: colour,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${safety.sensorTrust.state.label} SENSOR TRUST - ${safety.sensorTrust.score}%',
+                    style: const TextStyle(color: Color(0xFFC2D7DA)),
+                  ),
+                  if (safety.explanations.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    ...safety.explanations.take(4).map(
+                      (reason) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '- ${reason.detail}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            height: 1.25,
+                            color: Color(0xFFB8CED5),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -557,58 +637,52 @@ class _RiskPlaceholderCard extends StatelessWidget {
   }
 }
 
-class _VitalTile extends StatelessWidget {
-  const _VitalTile({
-    required this.icon,
+/// The lead vital, sized to be read from across a room.
+///
+/// [FittedBox] rather than a fixed size: a three-digit rate at text scale 1.3
+/// would otherwise overflow, and a clipped heart rate on stage is worse than a
+/// slightly smaller one.
+class _HeroVital extends StatelessWidget {
+  const _HeroVital({
     required this.label,
     required this.value,
     required this.unit,
-    required this.accent,
   });
 
-  final IconData icon;
   final String label;
   final String value;
   final String unit;
-  final Color accent;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(15),
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(22, 18, 22, 20),
       decoration: BoxDecoration(
-        color: const Color(0xFF102833),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: theme.dividerColor),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 19, color: accent),
-          const Spacer(),
-          Text(label, style: _sectionStyle.copyWith(fontSize: 9)),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value,
-                style: const TextStyle(
-                  fontSize: 25,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Padding(
-                padding: const EdgeInsets.only(bottom: 3),
-                child: Text(
-                  unit,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF91AAB5),
-                  ),
-                ),
-              ),
-            ],
+          Text(label, style: theme.textTheme.labelLarge),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(value, style: theme.textTheme.displayLarge),
+                const SizedBox(width: 8),
+                Text(unit, style: theme.textTheme.titleLarge?.copyWith(
+                  color: theme.textTheme.labelLarge?.color,
+                )),
+              ],
+            ),
           ),
         ],
       ),
@@ -616,23 +690,89 @@ class _VitalTile extends StatelessWidget {
   }
 }
 
-Color _tierColour(SignalTier tier) => switch (tier) {
-  SignalTier.good => const Color(0xFF49D6C7),
-  SignalTier.fair => const Color(0xFFF6C859),
-  SignalTier.poor => const Color(0xFFFF7482),
-  SignalTier.reacquiring => const Color(0xFF9CC9FF),
+class _VitalTile extends StatelessWidget {
+  const _VitalTile({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.unit,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: theme.dividerColor),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: context.signal.neutral),
+          const Spacer(),
+          Text(label, style: theme.textTheme.labelSmall, maxLines: 1),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(value, style: theme.textTheme.headlineMedium),
+                const SizedBox(width: 3),
+                Text(unit, style: theme.textTheme.labelMedium),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+Color _signalQualityColour(SignalQualityLevel level) => switch (level) {
+  SignalQualityLevel.excellent => const Color(0xFF49D6C7),
+  SignalQualityLevel.good => const Color(0xFF7FC8FF),
+  SignalQualityLevel.fair => const Color(0xFFF6C859),
+  SignalQualityLevel.poor => const Color(0xFFFF7482),
+  SignalQualityLevel.invalid => const Color(0xFF9CC9FF),
+};
+
+Color _sensorTrustColour(SensorTrustState state) => switch (state) {
+  SensorTrustState.reliable => const Color(0xFF49D6C7),
+  SensorTrustState.degraded => const Color(0xFFF6C859),
+  SensorTrustState.reacquiring => const Color(0xFFFF7482),
+  SensorTrustState.stale => const Color(0xFF9CC9FF),
+};
+
+Color _riskColour(RiskLevel level) => switch (level) {
+  RiskLevel.notComputed => const Color(0xFF91AAB5),
+  RiskLevel.normal => const Color(0xFF49D6C7),
+  RiskLevel.watch => const Color(0xFFF6C859),
+  RiskLevel.warning => const Color(0xFFFF9E6B),
+  RiskLevel.critical => const Color(0xFFFF7482),
 };
 
 class _SensorStatusCard extends StatelessWidget {
   const _SensorStatusCard({
     required this.frame,
     required this.signalColour,
-    required this.tier,
+    required this.assessment,
+    required this.trust,
   });
 
   final TelemetryFrame frame;
   final Color signalColour;
-  final SignalTier tier;
+  final SignalQualityAssessment assessment;
+  final SensorTrustAssessment? trust;
 
   @override
   Widget build(BuildContext context) {
@@ -666,7 +806,7 @@ class _SensorStatusCard extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                tier.label,
+                trust?.state.label ?? assessment.level.label,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: signalColour,
@@ -675,7 +815,7 @@ class _SensorStatusCard extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               Text(
-                '${(frame.signalQuality * 100).round()}%',
+                '${trust?.score ?? (frame.signalQuality * 100).round()}%',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: signalColour,
@@ -688,26 +828,84 @@ class _SensorStatusCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(9),
             child: LinearProgressIndicator(
               minHeight: 9,
-              value: tier == SignalTier.reacquiring
+              value: trust?.state == SensorTrustState.reacquiring ||
+                      trust?.state == SensorTrustState.stale ||
+                      assessment.level == SignalQualityLevel.invalid
                   ? null
-                  : frame.signalQuality,
+                  : (trust?.score ?? (frame.signalQuality * 100)) / 100,
               color: signalColour,
               backgroundColor: const Color(0xFF23434D),
             ),
           ),
+          if (trust != null && trust!.reasons.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                trust!.reasons.first,
+                style: const TextStyle(
+                  color: Color(0xFFB8CED5),
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _EventPlaceholder extends StatelessWidget {
-  const _EventPlaceholder({required this.frame});
+class _EventCard extends StatelessWidget {
+  const _EventCard({required this.frame, required this.assessment});
 
   final TelemetryFrame frame;
+  final SafetyAssessment? assessment;
 
   @override
   Widget build(BuildContext context) {
+    final safety = assessment;
+    if (safety != null) {
+      final message = frame.sosPressed
+          ? 'Replay SOS input received.'
+          : switch (safety.fallState) {
+              FallWorkflowState.checkIn =>
+                'Possible fall detected. Fall check-in is active.',
+              FallWorkflowState.escalated =>
+                'Possible fall check-in expired without a response.',
+              FallWorkflowState.monitoring =>
+                safety.sensorTrust.state == SensorTrustState.reacquiring
+                    ? 'Reading unreliable - reacquiring.'
+                    : 'No active fall workflow.',
+            };
+      return Container(
+        padding: const EdgeInsets.all(17),
+        decoration: _cardDecoration,
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              safety.fallDetected
+                  ? Icons.personal_injury_outlined
+                  : Icons.info_outline,
+              color: safety.fallDetected
+                  ? const Color(0xFFFF7482)
+                  : const Color(0xFFF6C859),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(
+                  height: 1.35,
+                  color: Color(0xFFC2D7DA),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     final message = frame.sosPressed
         ? 'Replay SOS input received — escalation is scheduled for Day 8.'
         : 'No risk rules enabled in Day 1. Replay packets are being received.';

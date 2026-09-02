@@ -25,9 +25,9 @@ If signal quality is poor, tell the user that the affected readings may be unrel
 
 If the state is WATCH, explain the future risk and give one simple preventative action.
 
-If the state is ACT, clearly tell the user what action to take.
+If the state is WARNING, clearly tell the user what action to take.
 
-If the state is EMERGENCY, lead with the emergency instruction and never minimize the situation.
+If the state is CRITICAL, lead with the emergency instruction and never minimize the situation.
 
 Keep answers simple, actionable, and preferably under 100 words.''';
 
@@ -47,14 +47,14 @@ Keep answers simple, actionable, and preferably under 100 words.''';
     );
 
     switch (context.riskLevel) {
-      case RiskLevel.emergency:
+      case RiskLevel.critical:
         buffer.writeln(
-          '\nThe RiskEngine has declared EMERGENCY. Lead with the emergency '
+          '\nThe RiskEngine has declared CRITICAL. Lead with the emergency '
           'instruction. Do not reassure and do not minimize.',
         );
-      case RiskLevel.act:
+      case RiskLevel.warning:
         buffer.writeln(
-          '\nThe RiskEngine has declared ACT. State clearly what the user '
+          '\nThe RiskEngine has declared WARNING. State clearly what the user '
           'must do now. Do not downplay it.',
         );
       case RiskLevel.watch:

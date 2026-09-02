@@ -6,6 +6,7 @@ import 'assistant/models/assistant_context.dart';
 import 'assistant/services/assistant_context_builder.dart';
 import 'assistant/services/assistant_service.dart';
 import 'core/escalation/escalation_service.dart';
+import 'core/theme/app_theme.dart';
 import 'features/monitoring/dashboard_screen.dart';
 import 'features/monitoring/telemetry_session.dart';
 import 'services/android_sms_gateway.dart';
@@ -42,6 +43,17 @@ class SwasthyaShieldApp extends StatefulWidget {
 }
 
 class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
+  /// Dark is the demo default. Light is offered because a dark UI loses
+  /// contrast punch on a projector in a lit room, where the black level rises
+  /// and the whole image goes muddy.
+  ThemeMode _themeMode = ThemeMode.dark;
+
+  void _toggleTheme() {
+    setState(() {
+      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -62,14 +74,14 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
 
   static const _contextBuilder = AssistantContextBuilder();
 
-  /// Builds the assistant's view of the app at the moment a question is
-  /// asked. `safety:` stays null until the Day 4-6 risk engine exists, so
-  /// the assistant reports riskLevel as not computed rather than guessing.
+  /// Builds the assistant's view from the same immutable assessment the
+  /// dashboard uses. The assistant receives no authority to alter it.
   AssistantContext _assistantContext() => _contextBuilder.build(
     frame: widget.session.latestFrame,
-    signalTier: widget.session.signalTier,
+    signalTier: widget.session.signalAssessment.level,
     connectivity: widget.session.connectivity,
     isStale: widget.session.isStale,
+    safety: widget.session.safetyAssessment,
   );
 
   @override
@@ -89,20 +101,17 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
 
   @override
   Widget build(BuildContext context) {
-    const navy = Color(0xFF081923);
     return MaterialApp(
       title: 'SwasthyaShield Edge',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF49D6C7),
-          brightness: Brightness.dark,
-          surface: navy,
-        ),
-        scaffoldBackgroundColor: navy,
-        useMaterial3: true,
-      ),
+      // Both themes carry the SignalColors extension and the projector type
+      // ramp. Light exists because a dark UI loses contrast punch on a
+      // projector in a lit room; dark stays the default for the demo.
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: _themeMode,
       home: DashboardScreen(
+        onToggleTheme: _toggleTheme,
         session: widget.session,
         escalation: widget.escalation,
         assistant: widget.assistant,

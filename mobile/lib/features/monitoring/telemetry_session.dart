@@ -3,17 +3,24 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/models/telemetry_frame.dart';
+import '../../core/safety/risk_engine.dart';
+import '../../core/safety/safety_assessment.dart';
 import '../../core/telemetry/signal_quality.dart';
 import '../../core/telemetry/telemetry_source.dart';
 
 /// UI-facing state. It knows only the telemetry and demo-control contracts.
 class TelemetrySession extends ChangeNotifier {
   TelemetrySession({
-    required this._source,
-    this._demoControls,
+    required TelemetrySource source,
+    DemoTelemetryControls? demoControls,
     this.staleThreshold = const Duration(seconds: 5),
     this.staleCheckInterval = const Duration(seconds: 1),
-  });
+    SignalQualityService? signalQualityService,
+    RiskEngine? riskEngine,
+  }) : _source = source,
+       _demoControls = demoControls,
+       _signalQualityService = signalQualityService ?? SignalQualityService(),
+       _riskEngine = riskEngine ?? RiskEngine();
 
   /// How long a connected link may go without a frame before it is stale.
   /// Replay runs at ~1.2 Hz and Day 2 BLE at 1 Hz, so this is several
@@ -23,6 +30,8 @@ class TelemetrySession extends ChangeNotifier {
 
   TelemetrySource _source;
   DemoTelemetryControls? _demoControls;
+  final SignalQualityService _signalQualityService;
+  final RiskEngine _riskEngine;
 
   StreamSubscription<TelemetryFrame>? _subscription;
   Timer? _staleTimer;
@@ -32,6 +41,7 @@ class TelemetrySession extends ChangeNotifier {
   Object? _error;
   bool _isRunning = false;
   bool _isStale = false;
+  SafetyAssessment? _safetyAssessment;
 
   TelemetryFrame? get latestFrame => _latestFrame;
   TelemetryConnectivity get connectivity => _connectivity;
@@ -48,8 +58,12 @@ class TelemetrySession extends ChangeNotifier {
 
   DateTime? get lastFrameAt => _lastFrameAt;
 
-  SignalTier get signalTier => classifySignal(
-    signalQuality: _latestFrame?.signalQuality ?? 0,
+  /// The only UI-facing risk verdict. It is rebuilt from every frame and is
+  /// deliberately separate from the presentational signal-quality service.
+  SafetyAssessment? get safetyAssessment => _safetyAssessment;
+
+  SignalQualityAssessment get signalAssessment => _signalQualityService.assess(
+    frame: _latestFrame,
     connectivity: _connectivity,
     isStale: _isStale,
   );
@@ -99,6 +113,8 @@ class TelemetrySession extends ChangeNotifier {
     _latestFrame = null;
     _lastFrameAt = null;
     _isStale = false;
+    _safetyAssessment = null;
+    _riskEngine.reset();
     _error = null;
     _isRunning = false;
     _connectivity = TelemetryConnectivity.connecting;
@@ -128,6 +144,7 @@ class TelemetrySession extends ChangeNotifier {
     _connectivity = frame.connectivity;
     _isRunning = true;
     _isStale = false;
+    _evaluateSafety();
     notifyListeners();
   }
 
@@ -154,7 +171,21 @@ class TelemetrySession extends ChangeNotifier {
         DateTime.now().difference(last) > staleThreshold;
     if (stale == _isStale) return;
     _isStale = stale;
+    _evaluateSafety();
     notifyListeners();
+  }
+
+  void _evaluateSafety() {
+    final frame = _latestFrame;
+    if (frame == null) {
+      _safetyAssessment = null;
+      return;
+    }
+    _safetyAssessment = _riskEngine.assess(
+      frame,
+      connectivity: _connectivity,
+      isStale: _isStale,
+    );
   }
 
   @override

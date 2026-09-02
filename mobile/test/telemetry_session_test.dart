@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:swasthyashield_edge/core/models/telemetry_frame.dart';
 import 'package:swasthyashield_edge/core/telemetry/signal_quality.dart';
+import 'package:swasthyashield_edge/core/telemetry/telemetry_parser.dart';
 import 'package:swasthyashield_edge/core/telemetry/telemetry_source.dart';
 import 'package:swasthyashield_edge/features/monitoring/telemetry_session.dart';
 
@@ -42,12 +43,21 @@ class _FakeDemoControls implements DemoTelemetryControls {
   void setPlaybackSpeed(double speed) {}
 }
 
+class _FixedSignalQualityModel implements SignalQualityModel {
+  @override
+  SignalQualityAssessment assess(SignalQualityInput input) =>
+      const SignalQualityAssessment(
+        level: SignalQualityLevel.fair,
+        reason: 'Test replacement.',
+      );
+}
+
 TelemetryFrame _frame({
   double quality = 0.9,
   TelemetrySourceType sourceType = TelemetrySourceType.ble,
   TelemetryConnectivity connectivity = TelemetryConnectivity.connected,
 }) {
-  return TelemetryFrame.tryParseMap(
+  return TelemetryParser.tryParseMap(
     {
       'ts': 1788249600,
       'q': (quality * 100).round(),
@@ -118,7 +128,7 @@ void main() {
     );
 
     test(
-      'stale telemetry reports REACQUIRING rather than a stale grade',
+      'stale telemetry reports INVALID rather than a stale grade',
       () async {
         final source = _FakeSource();
         final session = TelemetrySession(
@@ -130,11 +140,11 @@ void main() {
 
         await session.start();
         source.emit(_frame(quality: 0.95));
-        expect(session.signalTier, SignalTier.good);
+        expect(session.signalAssessment.level, SignalQualityLevel.excellent);
 
         await Future<void>.delayed(const Duration(milliseconds: 200));
 
-        expect(session.signalTier, SignalTier.reacquiring);
+        expect(session.signalAssessment.level, SignalQualityLevel.invalid);
 
         session.dispose();
       },
@@ -221,46 +231,90 @@ void main() {
     );
   });
 
-  group('signal tiers', () {
-    test('grades a connected link by quality', () {
-      SignalTier tierFor(double quality) => classifySignal(
-        signalQuality: quality,
+  group('signal-quality service', () {
+    final service = SignalQualityService();
+
+    SignalQualityLevel levelFor(double quality) => service
+        .assess(
+          frame: _frame(quality: quality),
+          connectivity: TelemetryConnectivity.connected,
+          isStale: false,
+        )
+        .level;
+
+    test('grades a connected frame by device confidence', () {
+      expect(levelFor(0.95), SignalQualityLevel.excellent);
+      expect(levelFor(0.7), SignalQualityLevel.good);
+      expect(levelFor(0.55), SignalQualityLevel.fair);
+      expect(levelFor(0.4), SignalQualityLevel.fair);
+      expect(levelFor(0.2), SignalQualityLevel.poor);
+    });
+
+    test('marks missing contact, stale data, and a disconnected link invalid', () {
+      expect(
+        service
+            .assess(
+              frame: _frame(),
+              connectivity: TelemetryConnectivity.disconnected,
+              isStale: false,
+            )
+            .level,
+        SignalQualityLevel.invalid,
+      );
+      expect(
+        service
+            .assess(
+              frame: _frame(),
+              connectivity: TelemetryConnectivity.connected,
+              isStale: true,
+            )
+            .level,
+        SignalQualityLevel.invalid,
+      );
+      final noContact = TelemetryParser.tryParseMap(
+        {'ts': 1788249600, 'q': 95, 'f': 0},
+        sourceType: TelemetrySourceType.ble,
+        connectivity: TelemetryConnectivity.connected,
+      )!;
+      expect(
+        service
+            .assess(
+              frame: noContact,
+              connectivity: TelemetryConnectivity.connected,
+              isStale: false,
+            )
+            .level,
+        SignalQualityLevel.invalid,
+      );
+    });
+
+    test('exposes all dashboard labels', () {
+      expect(SignalQualityLevel.excellent.label, 'EXCELLENT');
+      expect(SignalQualityLevel.good.label, 'GOOD');
+      expect(SignalQualityLevel.fair.label, 'FAIR');
+      expect(SignalQualityLevel.poor.label, 'POOR');
+      expect(SignalQualityLevel.invalid.label, 'INVALID');
+    });
+
+    test('accepts a replacement quality model behind the same service API', () {
+      final replacement = SignalQualityService(
+        model: _FixedSignalQualityModel(),
+      );
+
+      final assessment = replacement.assess(
+        frame: _frame(quality: 0.95),
         connectivity: TelemetryConnectivity.connected,
         isStale: false,
       );
 
-      expect(tierFor(0.95), SignalTier.good);
-      expect(tierFor(0.7), SignalTier.good);
-      expect(tierFor(0.55), SignalTier.fair);
-      expect(tierFor(0.4), SignalTier.fair);
-      expect(tierFor(0.2), SignalTier.poor);
-    });
-
-    test(
-      'a disconnected link is reacquiring whatever the last quality was',
-      () {
-        expect(
-          classifySignal(
-            signalQuality: 0.99,
-            connectivity: TelemetryConnectivity.disconnected,
-            isStale: false,
-          ),
-          SignalTier.reacquiring,
-        );
-      },
-    );
-
-    test('labels are the states the dashboard renders', () {
-      expect(SignalTier.good.label, 'GOOD');
-      expect(SignalTier.fair.label, 'FAIR');
-      expect(SignalTier.poor.label, 'POOR');
-      expect(SignalTier.reacquiring.label, 'REACQUIRING');
+      expect(assessment.level, SignalQualityLevel.fair);
+      expect(assessment.reason, 'Test replacement.');
     });
   });
 
   group('malformed and partial packets', () {
     test('a BLE frame with unavailable sensors still parses', () {
-      final frame = TelemetryFrame.tryParseMap(
+      final frame = TelemetryParser.tryParseMap(
         {
           'timestamp': DateTime.now().toUtc().toIso8601String(),
           'v': 1,
@@ -287,7 +341,7 @@ void main() {
     });
 
     test('a frame without signal quality is rejected', () {
-      final frame = TelemetryFrame.tryParseMap(
+      final frame = TelemetryParser.tryParseMap(
         {'timestamp': DateTime.now().toUtc().toIso8601String(), 'hr': 72},
         sourceType: TelemetrySourceType.ble,
         connectivity: TelemetryConnectivity.connected,

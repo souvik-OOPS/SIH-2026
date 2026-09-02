@@ -2,10 +2,9 @@ import 'dart:convert';
 
 /// Risk as decided by the application's RiskEngine — never by the LLM.
 ///
-/// [notComputed] is the honest default for this build: the Day 4-6 RiskEngine
-/// does not exist yet, so there is no authority to quote. The assistant says
-/// "not computed" rather than inventing a level.
-enum RiskLevel { notComputed, normal, watch, act, emergency }
+/// [notComputed] is reserved for callers that genuinely have no assessment.
+/// The Day 6 engine emits the four prototype states below.
+enum RiskLevel { notComputed, normal, watch, warning, critical }
 
 extension RiskLevelLabel on RiskLevel {
   /// The wire value handed to the model and shown in the UI.
@@ -13,21 +12,21 @@ extension RiskLevelLabel on RiskLevel {
     RiskLevel.notComputed => 'NOT_COMPUTED',
     RiskLevel.normal => 'NORMAL',
     RiskLevel.watch => 'WATCH',
-    RiskLevel.act => 'ACT',
-    RiskLevel.emergency => 'EMERGENCY',
+    RiskLevel.warning => 'WARNING',
+    RiskLevel.critical => 'CRITICAL',
   };
 
   /// Drives the "never minimize a dangerous state" rules in the prompt.
   bool get isElevated =>
       this == RiskLevel.watch ||
-      this == RiskLevel.act ||
-      this == RiskLevel.emergency;
+      this == RiskLevel.warning ||
+      this == RiskLevel.critical;
 
   static RiskLevel fromWire(String value) => switch (value.toUpperCase()) {
     'NORMAL' => RiskLevel.normal,
     'WATCH' => RiskLevel.watch,
-    'ACT' => RiskLevel.act,
-    'EMERGENCY' => RiskLevel.emergency,
+    'WARNING' || 'ACT' => RiskLevel.warning,
+    'CRITICAL' || 'EMERGENCY' => RiskLevel.critical,
     _ => RiskLevel.notComputed,
   };
 }
@@ -120,7 +119,7 @@ class AssistantContext {
   final double? ambientTemperature;
   final double? humidity;
 
-  /// One of: good, fair, poor, reacquiring, unknown.
+  /// One of: excellent, good, fair, poor, invalid, unknown.
   final String signalQuality;
   final bool fallDetected;
   final bool? movementDetected;
@@ -146,7 +145,7 @@ class AssistantContext {
       !telemetryAvailable ||
       dataIsStale ||
       signalQuality == 'poor' ||
-      signalQuality == 'reacquiring';
+      signalQuality == 'invalid';
 
   Map<String, dynamic> toJson() => {
     'riskLevel': riskLevel.wireValue,

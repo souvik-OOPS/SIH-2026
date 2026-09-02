@@ -3,6 +3,7 @@ import 'package:swasthyashield_edge/core/escalation/emergency_contact.dart';
 import 'package:swasthyashield_edge/core/escalation/escalation_service.dart';
 import 'package:swasthyashield_edge/core/escalation/sms_gateway.dart';
 import 'package:swasthyashield_edge/core/models/telemetry_frame.dart';
+import 'package:swasthyashield_edge/core/telemetry/telemetry_parser.dart';
 
 class _FakeGateway implements SmsGateway {
   _FakeGateway({this.permitted = true, this.failWith});
@@ -42,7 +43,7 @@ class _FakeGateway implements SmsGateway {
 const _amma = EmergencyContact(id: 'c1', name: 'Amma', phone: '+919000000001');
 const _bhai = EmergencyContact(id: 'c2', name: 'Bhai', phone: '+919000000002');
 
-TelemetryFrame _frame() => TelemetryFrame.tryParseMap(
+TelemetryFrame _frame() => TelemetryParser.tryParseMap(
   {'ts': 1788249600, 'q': 88, 'hr': 118.4, 'spo2': 91, 'at': 41.2, 'rh': 76},
   sourceType: TelemetrySourceType.ble,
   connectivity: TelemetryConnectivity.connected,
@@ -71,7 +72,7 @@ void main() {
 
     test('unavailable sensors show as dashes, never invented numbers', () {
       final service = EscalationService(gateway: _FakeGateway());
-      final sparse = TelemetryFrame.tryParseMap(
+      final sparse = TelemetryParser.tryParseMap(
         {'ts': 1788249600, 'q': 40, 'hr': null, 'spo2': null},
         sourceType: TelemetrySourceType.ble,
         connectivity: TelemetryConnectivity.connected,

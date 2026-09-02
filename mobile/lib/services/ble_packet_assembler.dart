@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../core/models/telemetry_frame.dart';
+import '../core/telemetry/telemetry_parser.dart';
 
 /// Reassembles the explicit default-MTU-safe fragments specified in
 /// docs/ble_protocol.md. Invalid or missing fragments discard only that frame.
@@ -70,7 +71,7 @@ class BlePacketAssembler {
       // Day 2 sends monotonic uptime (`u`), not a potentially false wall-clock.
       // The phone owns the observation timestamp used by the app model.
       fields['timestamp'] = DateTime.now().toUtc().toIso8601String();
-      return TelemetryFrame.tryParseMap(
+      return TelemetryParser.tryParseMap(
         fields,
         sourceType: TelemetrySourceType.ble,
         connectivity: TelemetryConnectivity.connected,
