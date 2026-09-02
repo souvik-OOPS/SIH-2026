@@ -26,11 +26,19 @@ struct TelemetryData {
   float gyroscopeZDps = NAN;
   bool gyroscopeValid = false;
 
+  /// Surface wetness from the rain board: 0 dry, 100 fully bridged.
+  /// rainRaw carries the underlying ADC count so a bad calibration is
+  /// visible rather than silently skewing the percentage.
+  float rainWetnessPercent = NAN;
+  int rainRaw = -1;
+  bool rainValid = false;
+
   uint8_t signalQuality = 0;
   bool fingerPresent = false;
 
   bool max30102Ready = false;
   bool mpu6050Ready = false;
   bool dht22Ready = false;
+  bool rainReady = false;
   bool oledReady = false;
 };

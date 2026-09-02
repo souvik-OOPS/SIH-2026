@@ -15,8 +15,10 @@ class SwasthyaBleProtocol {
       '9d5a0002-9d36-4b60-a680-59ab9204d001';
 }
 
-/// Live BLE implementation of [TelemetrySource]. It scans only for the
-/// project's service UUID and reconnects by resuming a conservative scan loop.
+/// Live BLE implementation of [TelemetrySource]. It recognizes the project by
+/// advertised name or service UUID, then verifies the service UUID after
+/// connecting. Some Android stacks omit a peripheral's scan-response UUID
+/// when applying a hardware scan filter.
 class BleTelemetrySource implements TelemetrySource {
   BleTelemetrySource({
     BlePermissionService? permissions,
@@ -113,10 +115,7 @@ class BleTelemetrySource implements TelemetrySource {
       return;
     }
     try {
-      await FlutterBluePlus.startScan(
-        withServices: [Guid(SwasthyaBleProtocol.serviceUuid)],
-        timeout: const Duration(seconds: 8),
-      );
+      await FlutterBluePlus.startScan(timeout: const Duration(seconds: 8));
     } on Object catch (error, stackTrace) {
       _addError(error, stackTrace);
     }
@@ -124,7 +123,20 @@ class BleTelemetrySource implements TelemetrySource {
 
   void _handleScanResults(List<ScanResult> results) {
     if (!_running || _device != null || _connecting || results.isEmpty) return;
-    unawaited(_connect(results.first.device));
+    for (final result in results) {
+      if (_isTargetAdvertisement(result)) {
+        unawaited(_connect(result.device));
+        return;
+      }
+    }
+  }
+
+  bool _isTargetAdvertisement(ScanResult result) {
+    final serviceUuid = Guid(SwasthyaBleProtocol.serviceUuid);
+    final advertisedName = result.advertisementData.advName;
+    return advertisedName == SwasthyaBleProtocol.deviceName ||
+        result.device.advName == SwasthyaBleProtocol.deviceName ||
+        result.advertisementData.serviceUuids.contains(serviceUuid);
   }
 
   Future<void> _connect(BluetoothDevice device) async {

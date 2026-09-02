@@ -31,3 +31,6 @@ Thumbs.db
 
 # ---- generated docs (kept local, not published) ----
 docs/
+
+# ---- Arduino build output (58 MB of regenerable objects) ----
+.arduino-build*/

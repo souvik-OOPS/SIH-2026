@@ -7,22 +7,96 @@
 #include "spo2_algorithm.h"
 
 namespace {
-constexpr float kGravityMps2 = 9.80665f;
 constexpr uint32_t kMotionIntervalMs = 20;
 constexpr uint32_t kDhtIntervalMs = 2000;
+// Rain changes on a weather timescale; sampling it fast buys nothing and
+// only adds ADC noise to average away.
+constexpr uint32_t kRainIntervalMs = 2000;
+constexpr uint8_t kRainSamples = 8;
 constexpr uint32_t kFingerTimeoutMs = 5000;
 constexpr uint32_t kPpgSampleIntervalMs = 1000UL / PPG_SAMPLE_RATE_HZ;
+
+constexpr uint8_t kMpuRegisterSampleRateDivider = 0x19;
+constexpr uint8_t kMpuRegisterConfig = 0x1A;
+constexpr uint8_t kMpuRegisterGyroConfig = 0x1B;
+constexpr uint8_t kMpuRegisterAccelerometerConfig = 0x1C;
+constexpr uint8_t kMpuRegisterAccelerometerXoutHigh = 0x3B;
+constexpr uint8_t kMpuRegisterPowerManagement1 = 0x6B;
+constexpr uint8_t kMpuRegisterWhoAmI = 0x75;
+constexpr float kMpuAccelerometerLsbPerG = 4096.0f;  // +/- 8 g
+constexpr float kMpuGyroscopeLsbPerDps = 65.5f;      // +/- 500 dps
+
+bool writeMpuRegister(uint8_t address, uint8_t registerAddress, uint8_t value) {
+  Wire.beginTransmission(address);
+  Wire.write(registerAddress);
+  Wire.write(value);
+  return Wire.endTransmission() == 0;
+}
+
+bool readMpuRegisters(
+    uint8_t address,
+    uint8_t registerAddress,
+    uint8_t* values,
+    size_t length) {
+  Wire.beginTransmission(address);
+  Wire.write(registerAddress);
+  if (Wire.endTransmission(false) != 0) return false;
+  if (Wire.requestFrom(static_cast<int>(address), static_cast<int>(length)) != length) {
+    return false;
+  }
+  for (size_t index = 0; index < length; ++index) {
+    if (!Wire.available()) return false;
+    values[index] = Wire.read();
+  }
+  return true;
+}
+
+int16_t signed16(uint8_t high, uint8_t low) {
+  return static_cast<int16_t>((static_cast<uint16_t>(high) << 8) | low);
+}
+
+bool isSupportedMpuIdentity(uint8_t identity) {
+  // MPU6050-compatible parts often return a different ID even though they
+  // expose the same registers used below. The user's validated bring-up test
+  // supports these identities as well.
+  return identity == 0x68 || identity == 0x70 || identity == 0x71 ||
+      identity == 0x72;
+}
 }  // namespace
 
 void SensorNode::begin() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(400000);
+  scanI2cBus();
 
   beginMax30102();
   beginMpu6050();
 
+#if RAIN_ENABLED
+  // 12-bit, 11 dB attenuation: the rain board swings the whole 0-3.3 V range,
+  // and the default 0 dB would clip everything above roughly 1.1 V.
+  analogReadResolution(12);
+  analogSetPinAttenuation(RAIN_ANALOG_PIN, ADC_11db);
+  Serial.println(F("[sensor] rain board on ADC1 GPIO 34"));
+#endif
+
   _dht.begin();
   Serial.println(F("[sensor] DHT22 started (ambient only); presence confirmed on first valid read"));
+}
+
+void SensorNode::scanI2cBus() {
+  Serial.printf("[i2c] scanning SDA=%d SCL=%d\n", I2C_SDA_PIN, I2C_SCL_PIN);
+
+  bool foundDevice = false;
+  for (uint8_t address = 1; address < 127; ++address) {
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() != 0) continue;
+
+    Serial.printf("[i2c] found 0x%02X\n", address);
+    foundDevice = true;
+  }
+
+  if (!foundDevice) Serial.println(F("[i2c] no devices found"));
 }
 
 void SensorNode::beginMax30102() {
@@ -46,22 +120,36 @@ void SensorNode::beginMax30102() {
 }
 
 void SensorNode::beginMpu6050() {
-  if (!_mpu.begin(0x68, &Wire) && !_mpu.begin(0x69, &Wire)) {
-    Serial.println(F("[sensor] MPU6050 not found at 0x68 or 0x69"));
+  for (const uint8_t address : {0x68, 0x69}) {
+    uint8_t identity = 0xFF;
+    if (!readMpuRegisters(address, kMpuRegisterWhoAmI, &identity, 1) ||
+        !isSupportedMpuIdentity(identity)) {
+      continue;
+    }
+
+    if (!writeMpuRegister(address, kMpuRegisterPowerManagement1, 0x01) ||
+        !writeMpuRegister(address, kMpuRegisterConfig, 0x03) ||
+        !writeMpuRegister(address, kMpuRegisterSampleRateDivider, 0x04) ||
+        !writeMpuRegister(address, kMpuRegisterGyroConfig, 0x08) ||
+        !writeMpuRegister(address, kMpuRegisterAccelerometerConfig, 0x10)) {
+      Serial.println(F("[sensor] MPU6050 configuration failed"));
+      return;
+    }
+
+    _mpu6050Address = address;
+    _mpu6050Ready = true;
+    Serial.printf("[sensor] MPU6050-compatible IMU ready at 0x%02X (WHO_AM_I=0x%02X)\n", address, identity);
     return;
   }
 
-  _mpu.setAccelerometerRange(MPU6050_RANGE_8_G);
-  _mpu.setGyroRange(MPU6050_RANGE_500_DEG);
-  _mpu.setFilterBandwidth(MPU6050_BAND_21_HZ);
-  _mpu6050Ready = true;
-  Serial.println(F("[sensor] MPU6050 ready"));
+  Serial.println(F("[sensor] MPU6050-compatible IMU not found at 0x68 or 0x69"));
 }
 
 void SensorNode::update() {
   updatePpg();
   updateMotion();
   updateDht22();
+  updateRain();
 }
 
 void SensorNode::updatePpg() {
@@ -151,17 +239,21 @@ void SensorNode::updateMotion() {
   }
   _lastMotionReadMs = millis();
 
-  sensors_event_t accel;
-  sensors_event_t gyro;
-  sensors_event_t temperature;
-  _mpu.getEvent(&accel, &gyro, &temperature);
+  uint8_t rawValues[14] = {0};
+  if (!readMpuRegisters(
+          _mpu6050Address,
+          kMpuRegisterAccelerometerXoutHigh,
+          rawValues,
+          sizeof(rawValues))) {
+    return;
+  }
 
-  _accelerometerXG = accel.acceleration.x / kGravityMps2;
-  _accelerometerYG = accel.acceleration.y / kGravityMps2;
-  _accelerometerZG = accel.acceleration.z / kGravityMps2;
-  _gyroscopeXDps = gyro.gyro.x * RAD_TO_DEG;
-  _gyroscopeYDps = gyro.gyro.y * RAD_TO_DEG;
-  _gyroscopeZDps = gyro.gyro.z * RAD_TO_DEG;
+  _accelerometerXG = signed16(rawValues[0], rawValues[1]) / kMpuAccelerometerLsbPerG;
+  _accelerometerYG = signed16(rawValues[2], rawValues[3]) / kMpuAccelerometerLsbPerG;
+  _accelerometerZG = signed16(rawValues[4], rawValues[5]) / kMpuAccelerometerLsbPerG;
+  _gyroscopeXDps = signed16(rawValues[8], rawValues[9]) / kMpuGyroscopeLsbPerDps;
+  _gyroscopeYDps = signed16(rawValues[10], rawValues[11]) / kMpuGyroscopeLsbPerDps;
+  _gyroscopeZDps = signed16(rawValues[12], rawValues[13]) / kMpuGyroscopeLsbPerDps;
 }
 
 void SensorNode::updateDht22() {
@@ -185,6 +277,47 @@ void SensorNode::updateDht22() {
   _ambientTemperatureC = ambientTemperature;
 }
 
+/// Reads the rain board on ADC1.
+///
+/// The ESP32 ADC is noisy and not especially linear, so this averages a short
+/// burst rather than trusting one conversion. The board pulls toward ground as
+/// water bridges its traces, so the count is inverted into "wetness".
+///
+/// A board that is simply unplugged floats rather than reading a clean zero,
+/// which is why the raw count is published too: a constant mid-scale value
+/// with no water on the board means a disconnected sensor, not drizzle.
+void SensorNode::updateRain() {
+#if RAIN_ENABLED
+  if (millis() - _lastRainReadMs < kRainIntervalMs) return;
+  _lastRainReadMs = millis();
+
+  uint32_t total = 0;
+  for (uint8_t i = 0; i < kRainSamples; ++i) {
+    total += analogRead(RAIN_ANALOG_PIN);
+    delayMicroseconds(200);
+  }
+  const int raw = static_cast<int>(total / kRainSamples);
+  _rainRaw = raw;
+
+  const float span = static_cast<float>(RAIN_DRY_COUNT - RAIN_WET_COUNT);
+  if (span <= 0.0f) {
+    _rainWetnessPercent = NAN;
+    return;
+  }
+  float pct = (static_cast<float>(RAIN_DRY_COUNT - raw) / span) * 100.0f;
+  if (pct < 0.0f) pct = 0.0f;
+  if (pct > 100.0f) pct = 100.0f;
+  _rainWetnessPercent = pct;
+
+  if (!_rainReady) {
+    _rainReady = true;
+    Serial.print(F("[sensor] rain board reading (raw "));
+    Serial.print(raw);
+    Serial.println(F(") - calibrate RAIN_DRY_COUNT dry and RAIN_WET_COUNT wet"));
+  }
+#endif
+}
+
 TelemetryData SensorNode::snapshot(bool oledReady) const {
   TelemetryData data;
   data.uptimeMillis = millis();
@@ -204,6 +337,10 @@ TelemetryData SensorNode::snapshot(bool oledReady) const {
   data.gyroscopeYDps = _gyroscopeYDps;
   data.gyroscopeZDps = _gyroscopeZDps;
   data.gyroscopeValid = !isnan(_gyroscopeXDps) && !isnan(_gyroscopeYDps) && !isnan(_gyroscopeZDps);
+  data.rainWetnessPercent = _rainWetnessPercent;
+  data.rainRaw = _rainRaw;
+  data.rainValid = _rainReady && !isnan(_rainWetnessPercent);
+  data.rainReady = _rainReady;
   data.signalQuality = _signalQuality;
   data.fingerPresent = _fingerPresent;
   data.max30102Ready = _max30102Ready;

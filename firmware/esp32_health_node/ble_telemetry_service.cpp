@@ -8,6 +8,11 @@ namespace {
 constexpr size_t kJsonBufferSize = 240;
 constexpr size_t kSafeNotifyBytes = 20;  // default ATT MTU (23) minus 3-byte header
 constexpr size_t kFragmentDataBytes = 7;
+// A default-MTU frame takes about 20 notifications. Android can silently drop
+// a burst that is queued faster than its BLE connection interval, leaving the
+// phone unable to reassemble any frame. This stays well inside the 1 Hz
+// telemetry budget while making the ordered transport reliable on phones.
+constexpr uint16_t kFragmentIntervalMs = 20;
 
 class ServerCallbacks final : public BLEServerCallbacks {
  public:
@@ -26,7 +31,11 @@ class ServerCallbacks final : public BLEServerCallbacks {
 
 // Keep the callback's hardware-facing hooks private to this translation unit.
 // They are declared here rather than exposing BLE implementation to the sketch.
-void BleTelemetryService::setConnected(bool connected) { _connected = connected; }
+void BleTelemetryService::setConnected(bool connected) {
+  _connected = connected;
+  Serial.println(connected ? F("[ble] central connected")
+                           : F("[ble] central disconnected"));
+}
 void BleTelemetryService::resumeAdvertising() { BLEDevice::getAdvertising()->start(); }
 
 void BleTelemetryService::begin() {
@@ -77,6 +86,7 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
   char gx[12];
   char gy[12];
   char gz[12];
+  char rain[12];
   const char* heartRateValue = data.heartRateValid
                                    ? dtostrf(data.heartRateBpm, 0, 1, heartRate)
                                    : "null";
@@ -105,11 +115,13 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
   const char* gzValue = data.gyroscopeValid
                             ? dtostrf(data.gyroscopeZDps, 0, 1, gz)
                             : "null";
+  const char* rainValue =
+      data.rainValid ? dtostrf(data.rainWetnessPercent, 0, 0, rain) : "null";
 
   const int written = snprintf(
       out,
       outSize,
-      "{\"v\":1,\"u\":%lu,\"hr\":%s,\"o2\":%s,\"t\":%s,\"h\":%s,\"ax\":%s,\"ay\":%s,\"az\":%s,\"gx\":%s,\"gy\":%s,\"gz\":%s,\"q\":%u,\"f\":%u}",
+      "{\"v\":1,\"u\":%lu,\"hr\":%s,\"o2\":%s,\"t\":%s,\"h\":%s,\"ax\":%s,\"ay\":%s,\"az\":%s,\"gx\":%s,\"gy\":%s,\"gz\":%s,\"rain\":%s,\"rr\":%d,\"q\":%u,\"f\":%u}",
       static_cast<unsigned long>(data.uptimeMillis),
       heartRateValue,
       spo2Value,
@@ -121,6 +133,8 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
       gxValue,
       gyValue,
       gzValue,
+      rainValue,
+      data.rainRaw,
       data.signalQuality,
       data.fingerPresent ? 1 : 0);
   return written > 0 && static_cast<size_t>(written) < outSize;
@@ -144,6 +158,6 @@ void BleTelemetryService::notifyFragments(const char* json) {
     memcpy(fragment + headerLength, json + offset, take);
     _telemetryCharacteristic->setValue(reinterpret_cast<uint8_t*>(fragment), headerLength + take);
     _telemetryCharacteristic->notify();
-    delay(4);  // keep notifications ordered on a default-MTU connection
+    if (part < total) delay(kFragmentIntervalMs);
   }
 }
