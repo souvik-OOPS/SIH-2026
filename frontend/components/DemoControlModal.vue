@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ref } from 'vue'
+import { useHealth } from '~/composables/useHealth'
+
 const props = defineProps<{
   show: boolean
 }>()

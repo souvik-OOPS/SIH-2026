@@ -1,4 +1,13 @@
 <script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import {
+  useHealth,
+  HEAT_BAND_COLOR,
+  timeAgo,
+  clockTime,
+  type Reading,
+} from '~/composables/useHealth'
+
 const {
   latest, trail, device, banner, connected, deviceOnline, now,
   disaster, loadDisasterContext,
@@ -51,7 +60,7 @@ const strainColor = computed(() => {
 /* -------------------------------- sparkline -------------------------------- */
 
 const hrTrail = computed(() =>
-  trail.value.filter((r) => r.signalOk !== false).slice(-60).map((r) => r.heartRate)
+  trail.value.filter((r: Reading) => r.signalOk !== false).slice(-60).map((r: Reading) => r.heartRate)
 )
 
 const restingHr = computed(() => derived.value?.restingHr ?? null)

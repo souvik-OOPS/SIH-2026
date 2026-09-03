@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Reading } from '~/composables/useHealth'
+import { ref, computed, watch, onMounted } from 'vue'
+import { useHealth, type Reading } from '~/composables/useHealth'
 import type { Series } from '~/components/TrendChart.vue'
 
 const { loadHistory, latest } = useHealth()
@@ -28,7 +29,7 @@ onMounted(refresh)
 
 // Pull in new samples as they arrive, but only while looking at a short window —
 // on a 24h view one extra point is invisible and the redraw is wasted work.
-watch(latest, (r) => {
+watch(latest, (r: Reading | null) => {
   if (r && range.value <= 60) rows.value = [...rows.value, r].slice(-1500)
 })
 
@@ -44,7 +45,7 @@ const TARGET_POINTS = 180
  * greying out as untrustworthy — the two views should not disagree.
  */
 const cleaned = computed(() =>
-  rows.value.map((r) => (r.signalOk === false ? { ...r, heartRate: null, spo2: null } : r))
+  rows.value.map((r: Reading) => (r.signalOk === false ? { ...r, heartRate: null, spo2: null } : r))
 )
 
 const sampled = computed(() => {
@@ -57,8 +58,8 @@ const sampled = computed(() => {
   for (let i = 0; i < src.length; i += bucketSize) {
     const bucket = src.slice(i, i + bucketSize)
     const avg = (key: keyof Reading) => {
-      const vals = bucket.map((b) => b[key]).filter((v): v is number => typeof v === 'number')
-      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null
+      const vals = bucket.map((b: Reading) => b[key]).filter((v): v is number => typeof v === 'number')
+      return vals.length ? vals.reduce((a: number, b: number) => a + b, 0) / vals.length : null
     }
     out.push({
       ...bucket[bucket.length - 1],
@@ -73,7 +74,7 @@ const sampled = computed(() => {
 })
 
 const labels = computed(() =>
-  sampled.value.map((r) =>
+  sampled.value.map((r: Reading) =>
     new Date(r.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false })
   )
 )
@@ -81,22 +82,22 @@ const labels = computed(() =>
 const round = (n: number | null) => (n == null ? null : Math.round(n * 10) / 10)
 
 const vitalsSeries = computed<Series[]>(() => [
-  { label: 'Heart rate (bpm)', data: sampled.value.map((r) => round(r.heartRate)), color: '#ff4f63', axis: 'y' },
-  { label: 'SpO₂ (%)', data: sampled.value.map((r) => round(r.spo2)), color: '#46b6f0', axis: 'y1' },
+  { label: 'Heart rate (bpm)', data: sampled.value.map((r: Reading) => round(r.heartRate)), color: '#ff4f63', axis: 'y' },
+  { label: 'SpO₂ (%)', data: sampled.value.map((r: Reading) => round(r.spo2)), color: '#46b6f0', axis: 'y1' },
 ])
 
 const envSeries = computed<Series[]>(() => [
-  { label: 'Ambient (°C)', data: sampled.value.map((r) => round(r.ambientTemp)), color: '#f4783c', axis: 'y' },
-  { label: 'Heat index (°C)', data: sampled.value.map((r) => round(r.heatIndex)), color: '#ff4f63', axis: 'y', dashed: true },
-  { label: 'Humidity (%)', data: sampled.value.map((r) => round(r.humidity)), color: '#46b6f0', axis: 'y1' },
+  { label: 'Ambient (°C)', data: sampled.value.map((r: Reading) => round(r.ambientTemp)), color: '#f4783c', axis: 'y' },
+  { label: 'Heat index (°C)', data: sampled.value.map((r: Reading) => round(r.heatIndex)), color: '#ff4f63', axis: 'y', dashed: true },
+  { label: 'Humidity (%)', data: sampled.value.map((r: Reading) => round(r.humidity)), color: '#46b6f0', axis: 'y1' },
 ])
 
 /* --------------------------------- summary -------------------------------- */
 
 function stats(key: 'heartRate' | 'spo2' | 'heatIndex') {
-  const vals = cleaned.value.map((r) => r[key]).filter((v): v is number => typeof v === 'number')
+  const vals = cleaned.value.map((r: Reading) => r[key]).filter((v): v is number => typeof v === 'number')
   if (!vals.length) return null
-  const sum = vals.reduce((a, b) => a + b, 0)
+  const sum = vals.reduce((a: number, b: number) => a + b, 0)
   return {
     min: Math.round(Math.min(...vals) * 10) / 10,
     max: Math.round(Math.max(...vals) * 10) / 10,

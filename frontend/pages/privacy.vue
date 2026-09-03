@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useHealth } from '~/composables/useHealth'
+
 /**
  * Privacy and data controls.
  *

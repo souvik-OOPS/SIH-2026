@@ -1,4 +1,15 @@
 <script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import {
+  useHealth,
+  SEVERITY_COLOR,
+  SEVERITY_ICON,
+  ALERT_LABEL,
+  timeAgo,
+  clockTime,
+  type Alert,
+} from '~/composables/useHealth'
+
 const { alerts, loadAlerts, acknowledge, now, unacknowledged } = useHealth()
 
 useHead({ title: 'Alerts — Health Companion' })
@@ -7,11 +18,11 @@ const filter = ref<'all' | 'critical' | 'open'>('all')
 
 onMounted(loadAlerts)
 
-const criticalCount = computed(() => alerts.value.filter((a) => a.severity === 'critical').length)
+const criticalCount = computed(() => alerts.value.filter((a: Alert) => a.severity === 'critical').length)
 
 const shown = computed(() => {
-  if (filter.value === 'critical') return alerts.value.filter((a) => a.severity === 'critical')
-  if (filter.value === 'open') return alerts.value.filter((a) => !a.acknowledged)
+  if (filter.value === 'critical') return alerts.value.filter((a: Alert) => a.severity === 'critical')
+  if (filter.value === 'open') return alerts.value.filter((a: Alert) => !a.acknowledged)
   return alerts.value
 })
 
