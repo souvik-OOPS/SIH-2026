@@ -7,6 +7,8 @@ const filter = ref<'all' | 'critical' | 'open'>('all')
 
 onMounted(loadAlerts)
 
+const criticalCount = computed(() => alerts.value.filter((a) => a.severity === 'critical').length)
+
 const shown = computed(() => {
   if (filter.value === 'critical') return alerts.value.filter((a) => a.severity === 'critical')
   if (filter.value === 'open') return alerts.value.filter((a) => !a.acknowledged)
@@ -34,9 +36,9 @@ function snapshotRows(snap: Record<string, unknown> | undefined) {
   <div>
     <header class="topbar">
       <div>
-        <h1>Alerts</h1>
+        <h1>Incident Log &amp; Alerts</h1>
         <p class="sub">
-          {{ alerts.length }} total · {{ unacknowledged }} unacknowledged
+          {{ alerts.length }} logged &middot; {{ unacknowledged }} unacknowledged
         </p>
       </div>
       <button class="btn small ghost" @click="loadAlerts">
@@ -44,59 +46,77 @@ function snapshotRows(snap: Record<string, unknown> | undefined) {
       </button>
     </header>
 
-    <div class="row" style="margin-bottom: 12px">
-      <button class="btn small" :class="{ active: filter === 'all' }" @click="filter = 'all'">All</button>
-      <button class="btn small" :class="{ active: filter === 'open' }" @click="filter = 'open'">Unacknowledged</button>
-      <button class="btn small" :class="{ active: filter === 'critical' }" @click="filter = 'critical'">Critical</button>
+    <div class="row" style="margin-bottom: 14px; gap: 8px">
+      <button class="btn small" :class="{ active: filter === 'all' }" @click="filter = 'all'">
+        All ({{ alerts.length }})
+      </button>
+      <button class="btn small" :class="{ active: filter === 'open' }" @click="filter = 'open'">
+        Unacknowledged ({{ unacknowledged }})
+      </button>
+      <button class="btn small" :class="{ active: filter === 'critical' }" @click="filter = 'critical'">
+        Critical ({{ criticalCount }})
+      </button>
     </div>
 
-    <div v-if="!shown.length" class="card">
-      <p class="empty">
-        <template v-if="alerts.length">Nothing matches this filter.</template>
-        <template v-else>No alerts yet. The wearer's vitals have stayed in range.</template>
+    <div v-if="!shown.length" class="card" style="text-align: center; padding: 48px 16px">
+      <AppIcon name="check" :size="28" style="color: var(--ok); margin-bottom: 12px" />
+      <p class="muted" style="margin: 0; font-size: 14px">
+        <template v-if="alerts.length">No alerts matching this filter.</template>
+        <template v-else>All clear. Telemetry is within safe physiological bounds.</template>
       </p>
     </div>
 
-    <article
-      v-for="a in shown"
-      :key="a._id"
-      class="card"
-      :style="{ borderLeft: `3px solid ${SEVERITY_COLOR[a.severity]}`, opacity: a.acknowledged ? 0.62 : 1 }"
-    >
-      <div class="spread" style="align-items: flex-start">
-        <div style="min-width: 0">
-          <div class="row" style="gap: 8px; flex-wrap: nowrap">
-            <AppIcon
-              :name="SEVERITY_ICON[a.severity]"
-              :size="17"
-              :style="{ color: SEVERITY_COLOR[a.severity], marginTop: '1px' }"
-            />
-            <span style="font-weight: 600; font-size: 14px; letter-spacing: -0.005em">{{ a.message }}</span>
+    <div v-else class="trends-grid" style="gap: 12px">
+      <article
+        v-for="a in shown"
+        :key="a._id"
+        class="card"
+        style="margin-bottom: 0; transition: border-color 0.2s ease, transform 0.15s ease"
+        :style="{
+          borderLeft: `3px solid ${SEVERITY_COLOR[a.severity]}`,
+          opacity: a.acknowledged ? 0.65 : 1,
+          boxShadow: !a.acknowledged && a.severity === 'critical' ? '0 0 16px rgba(255, 79, 99, 0.15)' : 'none',
+        }"
+      >
+        <div class="spread" style="align-items: flex-start">
+          <div style="min-width: 0">
+            <div class="row" style="gap: 8px; flex-wrap: nowrap">
+              <AppIcon
+                :name="SEVERITY_ICON[a.severity]"
+                :size="18"
+                :style="{ color: SEVERITY_COLOR[a.severity], marginTop: '1px' }"
+              />
+              <span style="font-weight: 600; font-size: 14px; letter-spacing: -0.01em">{{ a.message }}</span>
+            </div>
+            <p class="muted" style="margin: 6px 0 0; line-height: 1.5; font-size: 12.5px">{{ a.detail }}</p>
           </div>
-          <p class="muted" style="margin: 6px 0 0; line-height: 1.5">{{ a.detail }}</p>
+          <span class="faint mono" style="white-space: nowrap; font-size: 11px">{{ timeAgo(a.timestamp, now) }}</span>
         </div>
-        <span class="faint mono" style="white-space: nowrap">{{ timeAgo(a.timestamp, now) }}</span>
-      </div>
 
-      <div v-if="snapshotRows(a.snapshot).length" class="row" style="margin-top: 11px; gap: 6px">
-        <span v-for="s in snapshotRows(a.snapshot)" :key="s.label" class="pill mono">
-          {{ s.label }} {{ s.value }}{{ s.unit }}
-        </span>
-      </div>
-
-      <div class="spread" style="margin-top: 12px">
-        <div class="row" style="gap: 7px">
-          <span class="faint">{{ ALERT_LABEL[a.type] ?? a.type }}</span>
-          <span class="faint">· {{ clockTime(a.timestamp) }}</span>
-          <span v-if="a.smsSent" class="faint row" style="gap: 4px">
-            <AppIcon name="message" :size="12" /> SMS sent
+        <div v-if="snapshotRows(a.snapshot).length" class="row" style="margin-top: 12px; gap: 6px">
+          <span v-for="s in snapshotRows(a.snapshot)" :key="s.label" class="pill mono" style="font-size: 10.5px">
+            {{ s.label }} {{ s.value }}{{ s.unit }}
           </span>
-          <span v-else-if="a.smsError" class="faint">· SMS failed</span>
-          <span v-else-if="a.smsNote" class="faint">· SMS held: {{ a.smsNote }}</span>
         </div>
-        <button v-if="!a.acknowledged" class="btn small" @click="acknowledge(a._id)">Acknowledge</button>
-        <span v-else class="faint row" style="gap: 4px"><AppIcon name="check" :size="12" /> Acknowledged</span>
-      </div>
-    </article>
+
+        <div class="spread" style="margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line)">
+          <div class="row" style="gap: 8px">
+            <span class="faint">{{ ALERT_LABEL[a.type] ?? a.type }}</span>
+            <span class="faint">&middot; {{ clockTime(a.timestamp) }}</span>
+            <span v-if="a.smsSent" class="faint row" style="gap: 4px; color: var(--ok)">
+              <AppIcon name="message" :size="12" /> SMS delivered
+            </span>
+            <span v-else-if="a.smsError" class="faint" style="color: var(--crit)">&middot; SMS failed</span>
+            <span v-else-if="a.smsNote" class="faint">&middot; SMS held ({{ a.smsNote }})</span>
+          </div>
+          <button v-if="!a.acknowledged" class="btn small primary" @click="acknowledge(a._id)">
+            Acknowledge
+          </button>
+          <span v-else class="faint row" style="gap: 4px; color: var(--ok)">
+            <AppIcon name="check" :size="12" /> Acknowledged
+          </span>
+        </div>
+      </article>
+    </div>
   </div>
 </template>

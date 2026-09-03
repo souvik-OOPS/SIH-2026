@@ -115,12 +115,15 @@ const summary = computed(() => ({
   <div>
     <header class="topbar">
       <div>
-        <h1>Trends</h1>
-        <p class="sub"><span class="mono">{{ rows.length }}</span> readings in this window</p>
+        <h1>Historical Trends</h1>
+        <p class="sub"><span class="mono">{{ rows.length }}</span> readings in this telemetry window</p>
       </div>
+      <button class="btn small ghost" :disabled="loading" @click="refresh">
+        <AppIcon name="refresh" :size="13" /> Refresh
+      </button>
     </header>
 
-    <div class="row" style="margin-bottom: 12px">
+    <div class="row" style="margin-bottom: 14px; gap: 8px">
       <button
         v-for="r in RANGES"
         :key="r.minutes"
@@ -132,7 +135,7 @@ const summary = computed(() => ({
       </button>
     </div>
 
-    <div v-if="loading" class="card"><p class="empty" style="padding: 20px">Loading…</p></div>
+    <div v-if="loading" class="card"><p class="empty" style="padding: 24px">Loading telemetry records…</p></div>
 
     <div v-else-if="!rows.length" class="card">
       <p class="empty">
@@ -142,43 +145,46 @@ const summary = computed(() => ({
     </div>
 
     <template v-else>
-      <section class="card">
-        <p class="card-title">Vitals</p>
-        <TrendChart :labels="labels" :series="vitalsSeries" y-label="bpm" y1-label="%" />
-      </section>
+      <div class="trends-grid">
+        <section class="card" style="margin-bottom: 0">
+          <p class="card-title">Physiological Vitals Trend</p>
+          <TrendChart :labels="labels" :series="vitalsSeries" y-label="bpm" y1-label="%" />
+        </section>
 
-      <section class="card">
-        <p class="card-title">Environment &amp; apparent temperature</p>
-        <TrendChart :labels="labels" :series="envSeries" y-label="°C" y1-label="% RH" />
-        <p class="note">
-          The dashed line is heat index — what the air actually feels like once humidity blocks
-          evaporative cooling. It runs well above dry-bulb temperature in humid conditions.
-        </p>
-      </section>
+        <section class="card" style="margin-bottom: 0">
+          <p class="card-title">Environment &amp; Apparent Temperature</p>
+          <TrendChart :labels="labels" :series="envSeries" y-label="°C" y1-label="% RH" />
+          <p class="note">
+            The dashed line is NOAA heat index — apparent temperature when humidity impedes evaporative cooling.
+          </p>
+        </section>
 
-      <section class="card">
-        <p class="card-title">Window summary</p>
-        <div class="grid-2" style="margin: 0">
-          <div v-if="summary.hr">
-            <div class="stat-key">Heart rate</div>
-            <div class="stat-val">{{ summary.hr.avg }}<span class="unit-sm">bpm avg</span></div>
-            <div class="stat-sub">{{ summary.hr.min }}–{{ summary.hr.max }}</div>
+        <section class="card full-width" style="margin-bottom: 0">
+          <p class="card-title">Telemetry Window Summary</p>
+          <div class="grid-2" style="margin: 0; gap: 16px">
+            <div v-if="summary.hr" class="vital" style="padding: 12px">
+              <div class="stat-key">Heart Rate</div>
+              <div class="stat-val">{{ summary.hr.avg }}<span class="unit-sm">bpm avg</span></div>
+              <div class="stat-sub">Span {{ summary.hr.min }} – {{ summary.hr.max }} bpm</div>
+            </div>
+            <div v-if="summary.spo2" class="vital" style="padding: 12px">
+              <div class="stat-key">Blood Oxygen</div>
+              <div class="stat-val">{{ summary.spo2.avg }}<span class="unit-sm">% avg</span></div>
+              <div class="stat-sub">Lowest nadir {{ summary.spo2.min }}%</div>
+            </div>
+            <div v-if="summary.heat" class="vital" style="padding: 12px; grid-column: 1 / -1">
+              <div class="stat-key">Heat Index Peak</div>
+              <div
+                class="stat-val"
+                :style="{ color: summary.heat.max >= 51 ? '#ff4f63' : summary.heat.max >= 39 ? '#f0a742' : 'inherit' }"
+              >
+                {{ summary.heat.max }}<span class="unit-sm">°C peak</span>
+              </div>
+              <div class="stat-sub">Window average {{ summary.heat.avg }}°C</div>
+            </div>
           </div>
-          <div v-if="summary.spo2">
-            <div class="stat-key">Blood oxygen</div>
-            <div class="stat-val">{{ summary.spo2.avg }}<span class="unit-sm">% avg</span></div>
-            <div class="stat-sub">low {{ summary.spo2.min }}%</div>
-          </div>
-        </div>
-        <div v-if="summary.heat" class="rule" />
-        <div v-if="summary.heat">
-          <div class="stat-key">Heat index</div>
-          <div class="stat-val" :style="{ color: summary.heat.max >= 51 ? '#ff4f63' : summary.heat.max >= 39 ? '#f0a742' : 'inherit' }">
-            {{ summary.heat.max }}<span class="unit-sm">°C peak</span>
-          </div>
-          <div class="stat-sub">avg {{ summary.heat.avg }}°C</div>
-        </div>
-      </section>
+        </section>
+      </div>
     </template>
   </div>
 </template>

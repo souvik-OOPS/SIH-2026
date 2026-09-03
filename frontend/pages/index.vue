@@ -59,6 +59,7 @@ const restingHr = computed(() => derived.value?.restingHr ?? null)
 /* ------------------------------ notifications ------------------------------ */
 
 const notifState = ref<'unknown' | 'granted' | 'denied'>('unknown')
+const showDemo = ref(false)
 
 // Disaster context is enrichment: fetched once on mount and refreshed slowly,
 // never blocking the vitals view. A failure leaves the card in its explicit
@@ -161,180 +162,211 @@ const humidityFoot = computed(() =>
         <h1>{{ wearer }}</h1>
         <p class="sub">{{ profileLabel[device?.profile ?? 'general'] }} &middot; {{ lastSeenText }}</p>
       </div>
-      <span class="pill">
-        <span class="dot" :class="deviceOnline ? 'live' : 'down'" />
-        {{ deviceOnline ? 'Live' : connected ? 'No signal' : 'Offline' }}
-      </span>
+      <div class="row" style="gap: 8px">
+        <button class="btn small demo-pill" @click="showDemo = true">
+          <AppIcon name="signal" :size="12" /> Demo Mode
+        </button>
+        <span class="pill">
+          <span class="dot" :class="deviceOnline ? 'live' : 'down'" />
+          {{ deviceOnline ? 'Live' : connected ? 'No signal' : 'Offline' }}
+        </span>
+      </div>
     </header>
 
     <AlertBanner v-if="banner" :alert="banner" @ack="acknowledge" />
 
-    <DisasterContextCard :context="disaster" style="margin-bottom: 14px" />
-
-    <div v-if="!latest" class="card">
-      <p class="card-title">Waiting for the device</p>
-      <p class="muted" style="margin: 0 0 14px; line-height: 1.55">
-        No readings yet. Start the wearable, or run the simulator:
+    <div v-if="!latest" class="card" style="text-align: center; padding: 42px 20px 32px">
+      <div class="radar-scan">
+        <AppIcon name="signal" :size="26" style="color: var(--accent)" />
+      </div>
+      <h2 style="font-size: 16px; font-weight: 600; margin: 0 0 6px">Awaiting Telemetry Stream</h2>
+      <p class="muted" style="max-width: 400px; margin: 0 auto 18px; font-size: 13px; line-height: 1.55">
+        Listening on WebSocket for ESP32 hardware packets or the local simulator feed.
       </p>
-      <p class="mono faint" style="margin: 0; word-break: break-all">npm run simulate</p>
+      <div class="row" style="justify-content: center; gap: 10px; margin-bottom: 18px">
+        <span class="pill mono"><span class="dot live" /> Ingest Port 4000</span>
+        <button class="btn small primary" @click="showDemo = true">
+          <AppIcon name="signal" :size="12" /> Launch Evaluator Scenarios
+        </button>
+      </div>
+      <div style="padding-top: 14px; border-top: 1px solid var(--line)">
+        <span class="faint mono" style="font-size: 11px">Hardware simulator command: npm run simulate</span>
+      </div>
     </div>
 
-    <template v-else>
-      <!-- Primary vitals -->
-      <div class="grid-2">
-        <VitalTile
-          label="Heart rate"
-          icon="heart"
-          :value="latest.heartRate"
-          unit="bpm"
-          :status="hrStatus"
-          :stale="latest.signalOk === false"
-          :beat="latest.heartRate"
-          :foot="restingHr ? `Resting baseline ${restingHr} bpm` : 'Learning baseline…'"
-        />
-        <VitalTile
-          label="Blood oxygen"
-          icon="droplet"
-          :value="latest.spo2"
-          unit="%"
-          :status="spo2Status"
-          :stale="latest.signalOk === false"
-          :foot="latest.signalOk === false ? 'Signal poor — motion' : 'Peripheral SpO₂'"
-        />
+    <div v-else class="dashboard-grid">
+      <!-- Left Column: Primary physiological telemetry -->
+      <div class="dashboard-col" style="display: flex; flex-direction: column; gap: 10px">
+        <div class="grid-2" style="margin-bottom: 0">
+          <VitalTile
+            label="Heart rate"
+            icon="heart"
+            :value="latest.heartRate"
+            unit="bpm"
+            :status="hrStatus"
+            :stale="latest.signalOk === false"
+            :beat="latest.heartRate"
+            :foot="restingHr ? `Resting baseline ${restingHr} bpm` : 'Learning baseline…'"
+          />
+          <VitalTile
+            label="Blood oxygen"
+            icon="droplet"
+            :value="latest.spo2"
+            unit="%"
+            :status="spo2Status"
+            :stale="latest.signalOk === false"
+            :foot="latest.signalOk === false ? 'Signal poor — motion' : 'Peripheral SpO₂'"
+          />
+        </div>
+
+        <div class="grid-2" style="margin-bottom: 0">
+          <VitalTile
+            label="Ambient temp"
+            icon="thermometer"
+            :value="latest.ambientTemp"
+            unit="°C"
+            :foot="ambientFoot"
+          />
+          <VitalTile
+            label="Humidity"
+            icon="droplet"
+            :value="latest.humidity"
+            unit="%"
+            :foot="humidityFoot"
+          />
+        </div>
+
+        <div class="grid-2" style="margin-bottom: 0">
+          <VitalTile
+            :class="{ 'movement-tile': latest.bodyTemp == null }"
+            label="Movement"
+            icon="motion"
+            :value="motionLabel"
+            :foot="latest.accelMagnitude != null ? `${latest.accelMagnitude.toFixed(2)} g` : ''"
+          />
+          <VitalTile
+            v-if="latest.bodyTemp != null"
+            label="Body temp"
+            icon="thermometer"
+            :value="latest.bodyTemp"
+            unit="°C"
+            :status="latest.bodyTemp > 38 ? 'crit' : latest.bodyTemp > 37.5 ? 'warn' : 'ok'"
+            foot="Core estimate"
+          />
+        </div>
+
+        <!-- Heart-rate trace -->
+        <section class="card" style="margin-bottom: 0">
+          <div class="spread" style="margin-bottom: 12px">
+            <p class="card-title" style="margin: 0">Heart rate &middot; last 60 samples</p>
+            <span class="faint mono">{{ clockTime(latest.timestamp) }}</span>
+          </div>
+          <SparkLine :points="hrTrail" color="#ff4f63" :height="64" />
+        </section>
       </div>
 
-      <div class="grid-2">
-        <VitalTile
-          label="Ambient temp"
-          icon="thermometer"
-          :value="latest.ambientTemp"
-          unit="°C"
-          :foot="ambientFoot"
-        />
-        <VitalTile
-          label="Humidity"
-          icon="droplet"
-          :value="latest.humidity"
-          unit="%"
-          :foot="humidityFoot"
-        />
-      </div>
+      <!-- Right Column: Environmental risk & intelligence context -->
+      <div class="dashboard-col" style="display: flex; flex-direction: column; gap: 10px">
+        <DisasterContextCard :context="disaster" />
 
-      <div class="grid-2">
-        <VitalTile
-          class="movement-tile"
-          label="Movement"
-          icon="motion"
-          :value="motionLabel"
-          :foot="latest.accelMagnitude != null ? `${latest.accelMagnitude.toFixed(2)} g` : ''"
-        />
-      </div>
+        <!-- Environmental risk card -->
+        <section class="card" style="margin-bottom: 0">
+          <p class="card-title">Environmental Risk &amp; Strain</p>
 
-      <!-- Heart-rate trace -->
-      <section class="card">
-        <div class="spread" style="margin-bottom: 12px">
-          <p class="card-title" style="margin: 0">Heart rate &middot; last 60 samples</p>
-          <span class="faint mono">{{ clockTime(latest.timestamp) }}</span>
-        </div>
-        <SparkLine :points="hrTrail" color="#ff4f63" :height="56" />
-      </section>
-
-      <!-- The differentiator: environment cross-referenced with the body -->
-      <section class="card">
-        <p class="card-title">Environmental risk</p>
-
-        <div class="spread" style="margin-bottom: 8px">
-          <span class="metric-label">Heat index</span>
-          <span class="readout" :style="{ color: heatColor }">
-            {{ derived?.heatIndex != null ? `${derived.heatIndex}°C` : '––' }}
-            <span class="band">{{ derived?.heatBandLabel }}</span>
-          </span>
-        </div>
-        <div class="meter">
-          <span :style="{ width: `${heatPct}%`, background: heatColor }" />
-          <span class="ticks"><i /><i /><i /><i /></span>
-        </div>
-        <div class="scale">
-          <span>Safe</span><span>Caution</span><span>Danger</span><span>Extreme</span>
-        </div>
-        <p v-if="dhtAvailable" class="note">
-          Apparent temperature from {{ latest.ambientTemp ?? '––' }}°C at {{ latest.humidity ?? '––' }}% RH
-          ({{ envSourceLabel }}).
-          <template v-if="derived?.heatIndexExtrapolated">Beyond the NWS chart's validated range.</template>
-        </p>
-        <p v-else class="note">
-          No valid DHT temperature and humidity sample has reached the backend yet.
-          The device serial monitor will show the exact DHT values being read.
-        </p>
-
-        <div class="rule" />
-
-        <div class="spread" style="margin-bottom: 8px">
-          <span class="metric-label">Cardiovascular strain</span>
-          <span class="readout" :style="{ color: strainColor }">{{ strainPct.toFixed(0) }}%</span>
-        </div>
-        <div class="meter">
-          <span :style="{ width: `${strainPct}%`, background: strainColor }" />
-        </div>
-        <p class="note">
-          Heart rate as a share of reserve above this wearer's own resting baseline.
-          Heat risk is judged on this <em>and</em> the environment together.
-        </p>
-
-        <template v-if="mlRatio != null">
-          <div class="rule" />
           <div class="spread" style="margin-bottom: 8px">
-            <span class="metric-label">Learned baseline model</span>
-            <span class="readout" :style="{ color: mlColor }">
-              {{ mlRatio.toFixed(2) }}x
-              <span class="band">{{ mlLabel }}</span>
+            <span class="metric-label">Heat index</span>
+            <span class="readout" :style="{ color: heatColor }">
+              {{ derived?.heatIndex != null ? `${derived.heatIndex}°C` : '––' }}
+              <span class="band">{{ derived?.heatBandLabel }}</span>
             </span>
           </div>
           <div class="meter">
-            <span :style="{ width: `${mlPct}%`, background: mlColor }" />
+            <span :style="{ width: `${heatPct}%`, background: heatColor }" />
+            <span class="ticks"><i /><i /><i /><i /></span>
+          </div>
+          <div class="scale">
+            <span>Safe</span><span>Caution</span><span>Danger</span><span>Extreme</span>
+          </div>
+          <p v-if="dhtAvailable" class="note">
+            Apparent temperature from {{ latest.ambientTemp ?? '––' }}°C at {{ latest.humidity ?? '––' }}% RH
+            ({{ envSourceLabel }}).
+            <template v-if="derived?.heatIndexExtrapolated">Beyond the NWS chart's validated range.</template>
+          </p>
+          <p v-else class="note">
+            No valid DHT sample reached the backend yet. Showing fallback weather telemetry.
+          </p>
+
+          <div class="rule" />
+
+          <div class="spread" style="margin-bottom: 8px">
+            <span class="metric-label">Cardiovascular strain</span>
+            <span class="readout" :style="{ color: strainColor }">{{ strainPct.toFixed(0) }}%</span>
+          </div>
+          <div class="meter">
+            <span :style="{ width: `${strainPct}%`, background: strainColor }" />
           </div>
           <p class="note">
-            On-device autoencoder trained on real patient vitals. Scores how far this 30-second window sits
-            from normal physiology — a deviation signal, not a diagnosis.
+            Heart rate as a share of reserve above this wearer's own resting baseline.
+            Heat risk is judged on this <em>and</em> the environment together.
           </p>
-        </template>
 
-        <template v-if="ambient?.aqi != null">
-          <div class="rule" />
-          <div class="spread">
-            <span class="metric-label">Air quality</span>
-            <span class="readout">
-              {{ derived?.airQuality }}
-              <span v-if="ambient.pm25 != null" class="band">PM2.5 {{ Math.round(ambient.pm25) }}</span>
+          <template v-if="mlRatio != null">
+            <div class="rule" />
+            <div class="spread" style="margin-bottom: 8px">
+              <span class="metric-label">Learned baseline model</span>
+              <span class="readout" :style="{ color: mlColor }">
+                {{ mlRatio.toFixed(2) }}x
+                <span class="band">{{ mlLabel }}</span>
+              </span>
+            </div>
+            <div class="meter">
+              <span :style="{ width: `${mlPct}%`, background: mlColor }" />
+            </div>
+            <p class="note">
+              On-device autoencoder trained on real patient vitals. Scores how far this 30-second window sits
+              from normal physiology — a deviation signal, not a diagnosis.
+            </p>
+          </template>
+
+          <template v-if="ambient?.aqi != null">
+            <div class="rule" />
+            <div class="spread">
+              <span class="metric-label">Air quality</span>
+              <span class="readout">
+                {{ derived?.airQuality }}
+                <span v-if="ambient.pm25 != null" class="band">PM2.5 {{ Math.round(ambient.pm25) }}</span>
+              </span>
+            </div>
+          </template>
+        </section>
+
+        <!-- Device & Network status -->
+        <section class="card" style="margin-bottom: 0">
+          <p class="card-title">Device &amp; Telemetry Status</p>
+          <div class="row" style="gap: 7px">
+            <span class="pill"><AppIcon name="shield" :size="13" /> Edge processing</span>
+            <span class="pill">
+              <AppIcon name="signal" :size="13" :style="{ color: connected ? 'var(--ok)' : 'var(--text-faint)' }" />
+              {{ connected ? 'WebSocket active' : 'Reconnecting' }}
             </span>
           </div>
-        </template>
-      </section>
+          <div v-if="notifState !== 'granted'" style="margin-top: 13px">
+            <button class="btn" :disabled="notifState === 'denied'" @click="askNotifications">
+              <AppIcon name="bell" :size="14" />
+              {{ notifState === 'denied' ? 'Notifications blocked' : 'Enable alert notifications' }}
+            </button>
+          </div>
+          <p v-else class="note" style="margin-top: 12px">
+            Notifications on — critical alerts notify even when this tab is backgrounded.
+          </p>
+        </section>
+      </div>
+    </div>
 
-      <!-- Privacy + notifications -->
-      <section class="card">
-        <p class="card-title">This device</p>
-        <div class="row" style="gap: 7px">
-          <span class="pill"><AppIcon name="shield" :size="13" /> Vitals stay on your network</span>
-          <span class="pill">
-            <AppIcon name="signal" :size="13" :style="{ color: connected ? 'var(--ok)' : 'var(--text-faint)' }" />
-            {{ connected ? 'Socket live' : 'Reconnecting' }}
-          </span>
-        </div>
-        <div v-if="notifState !== 'granted'" style="margin-top: 13px">
-          <button class="btn" :disabled="notifState === 'denied'" @click="askNotifications">
-            <AppIcon name="bell" :size="14" />
-            {{ notifState === 'denied' ? 'Notifications blocked in browser' : 'Enable alert notifications' }}
-          </button>
-        </div>
-        <p v-else class="note" style="margin-top: 12px">
-          Notifications on — critical alerts appear even when this tab is in the background.
-        </p>
-      </section>
+    <p v-if="activeCritical" class="faint" style="text-align: center; margin-top: 14px; padding-bottom: 4px">
+      An unacknowledged critical alert is open. See the Alerts tab.
+    </p>
 
-      <p v-if="activeCritical" class="faint" style="text-align: center; padding-bottom: 4px">
-        An unacknowledged critical alert is open. See the Alerts tab.
-      </p>
-    </template>
+    <DemoControlModal :show="showDemo" @close="showDemo = false" />
   </div>
 </template>
