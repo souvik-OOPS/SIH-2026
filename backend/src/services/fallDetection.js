@@ -138,8 +138,11 @@ export function evaluateFall(reading, { now = Date.parse(reading.timestamp) || D
     // The window closed without the stillness a real fall produces. Most
     // likely a knock, a dropped device, or the wearer carried on moving.
     s.phase = 'idle';
+    s.impactAt = null;
+    s.impactG = null;
     s.freeFallAt = null;
     s.referenceVector = null;
+    s.stillSince = null;
     return idle;
   }
 

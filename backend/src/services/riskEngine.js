@@ -86,7 +86,7 @@ export function assessRisk({
   }
 
   // --- environment, as context rather than a verdict
-  if (derived.heatBand === 'danger' || derived.heatBand === 'extreme') {
+  if (derived.heatBand === 'danger' || derived.heatBand === 'extreme_danger') {
     add('heat_environment', RiskLevel.WARNING, `Heat-index band: ${derived.heatBandLabel}.`);
   } else if (derived.heatBand === 'caution' || derived.heatBand === 'extreme_caution') {
     add('heat_environment', RiskLevel.CAUTION, `Heat-index band: ${derived.heatBandLabel}.`);

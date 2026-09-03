@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
+    "test": "node --test",
     "simulate": "node src/simulator.js",
     "simulate:demo": "node src/simulator.js --scenario=demo",
     "db:verify": "node db/verify.js"

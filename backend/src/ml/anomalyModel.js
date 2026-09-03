@@ -70,7 +70,8 @@ export function createModel(spec) {
         const v = recent[t][features[f]];
         if (v === null || v === undefined || Number.isNaN(v)) return null;
         // Same flattening order as training: time-major, features interleaved.
-        x[k] = (v - mean[f]) / std[f];
+        const s = std[f] || 1e-6;
+        x[k] = (v - mean[f]) / s;
         k++;
       }
     }
