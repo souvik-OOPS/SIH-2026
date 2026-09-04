@@ -17,6 +17,7 @@ class SensorNode {
   void beginMax30102();
   void beginMpu6050();
   float readGravityMagnitude(uint8_t address);
+  bool writeMpuRegisterRetrying(uint8_t address, uint8_t reg, uint8_t value);
   void updatePpg();
   void updateMotion();
   void updateDht22();
@@ -38,6 +39,8 @@ class SensorNode {
   uint32_t _lastRainReadMs = 0;
   uint32_t _lastMotionReadMs = 0;
   uint32_t _lastBeatMs = 0;
+  uint32_t _lastRateMs = 0;
+  uint32_t _lastPpgLogMs = 0;
   float _heartRateBpm = NAN;
   float _spo2Percent = NAN;
   bool _spo2Valid = false;

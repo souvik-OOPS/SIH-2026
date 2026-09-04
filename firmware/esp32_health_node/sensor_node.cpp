@@ -160,6 +160,15 @@ void SensorNode::beginMax30102() {
       (unsigned long)FINGER_IR_THRESHOLD);
 }
 
+/// Writes one register, retrying before giving up on the part.
+bool SensorNode::writeMpuRegisterRetrying(uint8_t address, uint8_t reg, uint8_t value) {
+  for (uint8_t attempt = 0; attempt < 4; ++attempt) {
+    if (writeMpuRegister(address, reg, value)) return true;
+    delay(5);
+  }
+  return false;
+}
+
 /// Reads the accelerometer once and reports the magnitude in g.
 /// Returns NAN if the registers cannot be read.
 float SensorNode::readGravityMagnitude(uint8_t address) {
@@ -196,15 +205,21 @@ void SensorNode::beginMpu6050() {
 
     // Reset first. Several clones come up in a state where the configuration
     // writes below are accepted but ignored until the part has been reset.
-    if (!writeMpuRegister(address, kMpuRegisterPowerManagement1, 0x80)) continue;
+    if (!writeMpuRegisterRetrying(address, kMpuRegisterPowerManagement1, 0x80)) continue;
     delay(100);
 
-    if (!writeMpuRegister(address, kMpuRegisterPowerManagement1, 0x01) ||
-        !writeMpuRegister(address, kMpuRegisterConfig, 0x03) ||
-        !writeMpuRegister(address, kMpuRegisterSampleRateDivider, 0x04) ||
-        !writeMpuRegister(address, kMpuRegisterGyroConfig, 0x08) ||
-        !writeMpuRegister(address, kMpuRegisterAccelerometerConfig, 0x10)) {
-      Serial.printf("[sensor] IMU at 0x%02X did not accept configuration\n", address);
+    // Retry each write. A single NAK used to abandon the part for good, and on
+    // a module whose contact is marginal - one that vanishes from the bus scan
+    // between probes, as this one does - losing one byte of five is ordinary.
+    // Failing the whole IMU over it reports no motion at all when nine writes
+    // in ten would have gone through.
+    if (!writeMpuRegisterRetrying(address, kMpuRegisterPowerManagement1, 0x01) ||
+        !writeMpuRegisterRetrying(address, kMpuRegisterConfig, 0x03) ||
+        !writeMpuRegisterRetrying(address, kMpuRegisterSampleRateDivider, 0x04) ||
+        !writeMpuRegisterRetrying(address, kMpuRegisterGyroConfig, 0x08) ||
+        !writeMpuRegisterRetrying(address, kMpuRegisterAccelerometerConfig, 0x10)) {
+      Serial.printf("[sensor] IMU at 0x%02X did not accept configuration after retries"
+                    " - contact is intermittent, check its jumpers and supply\n", address);
       continue;
     }
     // A reset part needs time before its first conversion is meaningful, and
@@ -270,6 +285,8 @@ void SensorNode::updatePpg() {
     _spo2Percent = NAN;
     _spo2Valid = false;
     _spo2BufferCount = 0;
+    _lastBeatMs = 0;
+    _lastRateMs = 0;
     return;
   }
 
@@ -293,6 +310,30 @@ void SensorNode::updatePpg() {
     _spo2Valid = algorithmSpo2Valid && algorithmSpo2 >= 50 && algorithmSpo2 <= 100;
     _spo2Percent = _spo2Valid ? static_cast<float>(algorithmSpo2) : NAN;
 
+    // The Maxim algorithm reports a heart rate next to SpO2, and it was being
+    // computed and then discarded - every argument passed, filled in, and
+    // never read. Heart rate rested entirely on checkForBeat() below, which
+    // cannot carry it alone: that routine only accepts a pulse whose AC
+    // amplitude lands between 20 and 1000 counts, and through a fingertip at
+    // MAX30102_LED_BRIGHTNESS 0x7F the swing runs past that ceiling, so beats
+    // are rejected no matter how good the contact is. Raising the brightness
+    // is what made contact detection reliable, so the fix is to take the rate
+    // from the algorithm that has no such window rather than to dim the LED.
+    if (algorithmHeartRateValid && algorithmHeartRate >= 30 &&
+        algorithmHeartRate <= 220) {
+      const float bpm = static_cast<float>(algorithmHeartRate);
+      _heartRateBpm = isnan(_heartRateBpm) ? bpm
+                                           : (_heartRateBpm * 0.6f + bpm * 0.4f);
+      _lastRateMs = millis();
+    }
+
+    if (millis() - _lastPpgLogMs >= 2000) {
+      _lastPpgLogMs = millis();
+      Serial.printf("[hr] algorithm bpm=%ld valid=%d  spo2=%ld valid=%d\n",
+                    (long)algorithmHeartRate, (int)algorithmHeartRateValid,
+                    (long)algorithmSpo2, (int)algorithmSpo2Valid);
+    }
+
     // Retain 75 samples so subsequent algorithm results update every second.
     for (uint8_t i = 0; i < 75; ++i) {
       _irBuffer[i] = _irBuffer[i + 25];
@@ -301,18 +342,25 @@ void SensorNode::updatePpg() {
     _spo2BufferCount = 75;
   }
 
+  // Kept as the faster path: when the AC amplitude does sit inside its window
+  // this updates between algorithm runs instead of once a second.
   if (checkForBeat(ir)) {
     const uint32_t now = millis();
     if (_lastBeatMs != 0) {
       const float bpm = 60000.0f / static_cast<float>(now - _lastBeatMs);
       if (bpm >= 30.0f && bpm <= 220.0f) {
         _heartRateBpm = isnan(_heartRateBpm) ? bpm : (_heartRateBpm * 0.75f + bpm * 0.25f);
+        _lastRateMs = now;
       }
     }
     _lastBeatMs = now;
   }
 
-  if (_lastBeatMs == 0 || millis() - _lastBeatMs > kFingerTimeoutMs) {
+  // Staleness is judged on the last accepted *rate*, from either source. This
+  // used to test _lastBeatMs, which only checkForBeat() ever set - so with
+  // that routine silent the timer sat at 0 and this branch nulled the heart
+  // rate on every pass, discarding a good value the moment it was written.
+  if (_lastRateMs == 0 || millis() - _lastRateMs > kFingerTimeoutMs) {
     _heartRateBpm = NAN;
   }
 }
