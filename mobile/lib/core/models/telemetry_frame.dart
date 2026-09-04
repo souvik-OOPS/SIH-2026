@@ -98,6 +98,27 @@ class TelemetryFrame {
     return math.sqrt(x * x + y * y + z * z);
   }
 
+  /// Acceleration beyond gravity, in g.
+  ///
+  /// The raw magnitude is not a motion reading: an accelerometer at rest
+  /// measures one gravity, so a perfectly still band reports about 1.00 and
+  /// the dashboard rendered that as "Motion 1.00 g" - movement where there is
+  /// none. Subtracting gravity gives a figure that actually sits near zero
+  /// when nothing is happening.
+  double? get motionIntensityG {
+    final magnitude = accelerometerMagnitude;
+    return magnitude == null ? null : (magnitude - 1.0).abs();
+  }
+
+  /// Human-readable activity state, or null when the IMU has no reading.
+  String? get activityLabel {
+    final intensity = motionIntensityG;
+    if (intensity == null) return null;
+    if (intensity < 0.08) return 'Still';
+    if (intensity < 0.30) return 'Light movement';
+    return 'Active';
+  }
+
   TelemetryFrame copyWith({
     DateTime? timestamp,
     TelemetryConnectivity? connectivity,

@@ -787,7 +787,10 @@ class _SensorStatusCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'Motion ${frame.accelerometerMagnitude?.toStringAsFixed(2) ?? '--'} g',
+                  frame.activityLabel == null
+                      ? 'Motion  --'
+                      : 'Motion  ${frame.activityLabel}'
+                            '  ·  ${frame.motionIntensityG!.toStringAsFixed(2)} g',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
