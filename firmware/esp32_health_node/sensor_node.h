@@ -32,6 +32,7 @@ class SensorNode {
   bool _dht22Ready = false;
 
   uint32_t _lastPpgReadMs = 0;
+  uint32_t _lastIrLogMs = 0;
   uint32_t _lastDhtReadMs = 0;
   uint32_t _lastRainReadMs = 0;
   uint32_t _lastMotionReadMs = 0;

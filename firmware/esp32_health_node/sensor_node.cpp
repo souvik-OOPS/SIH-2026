@@ -126,15 +126,34 @@ void SensorNode::beginMax30102() {
   // Red + IR mode supports heartbeat detection and the installed SparkFun /
   // Maxim reference SpO2 algorithm. Invalid optical data is emitted as null,
   // never as an invented SpO2 measurement.
+  //
+  // Two things here were wrong and both starved the algorithm:
+  //
+  // Brightness was 60 of 255, roughly 6 mA of drive. Through a fingertip that
+  // returns an IR count well under the 50000 contact threshold, so a finger
+  // that is genuinely present never registers and heart rate stays null. The
+  // higher current costs battery but is what makes contact detectable.
+  //
+  // The FIFO averages every MAX30102_SAMPLE_AVERAGE conversions, so its output
+  // rate is the sample rate divided by that average. At 25 Hz with 4x
+  // averaging the FIFO produced about 6 samples a second while the read loop
+  // asked for 25, so the 100-sample SpO2 buffer took 16 seconds to fill
+  // instead of 4. Sampling at 100 Hz makes the post-average output 25 Hz,
+  // which is what the read loop and the Maxim algorithm both expect.
   _max30102.setup(
-      60,                         // LED brightness
-      4,                          // sample average
-      2,                          // red + IR
-      PPG_SAMPLE_RATE_HZ,
-      411,                        // pulse width
-      4096);                      // ADC range
+      MAX30102_LED_BRIGHTNESS,
+      MAX30102_SAMPLE_AVERAGE,
+      2,                                                   // red + IR
+      PPG_SAMPLE_RATE_HZ * MAX30102_SAMPLE_AVERAGE,        // pre-average rate
+      411,                                                 // pulse width
+      4096);                                               // ADC range
   _max30102Ready = true;
-  Serial.println(F("[sensor] MAX30102 ready"));
+  Serial.printf(
+      "[sensor] MAX30102 ready (LED %u, %ux average, %u Hz to the FIFO, "
+      "finger threshold IR>=%lu)\n",
+      (unsigned)MAX30102_LED_BRIGHTNESS, (unsigned)MAX30102_SAMPLE_AVERAGE,
+      (unsigned)(PPG_SAMPLE_RATE_HZ * MAX30102_SAMPLE_AVERAGE),
+      (unsigned long)FINGER_IR_THRESHOLD);
 }
 
 /// Reads the accelerometer once and reports the magnitude in g.
@@ -284,6 +303,19 @@ void SensorNode::updatePpg() {
 
 void SensorNode::updateSignalQuality(uint32_t irValue) {
   _fingerPresent = irValue >= FINGER_IR_THRESHOLD;
+
+  // Print the raw IR count about once a second. This is the number the
+  // threshold has to be set against, and without it a finger that reads just
+  // under the line is indistinguishable from no finger at all - which is
+  // exactly how heart rate ends up permanently null with the sensor working.
+  if (millis() - _lastIrLogMs >= 1000) {
+    _lastIrLogMs = millis();
+    Serial.printf("[ppg] IR=%lu  threshold=%lu  finger=%s\n",
+                  (unsigned long)irValue,
+                  (unsigned long)FINGER_IR_THRESHOLD,
+                  _fingerPresent ? "yes" : "no");
+  }
+
   if (!_fingerPresent) {
     _signalQuality = 0;
     return;
