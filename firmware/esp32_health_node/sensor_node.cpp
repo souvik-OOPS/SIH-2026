@@ -146,7 +146,7 @@ void SensorNode::beginMax30102() {
       2,                                                   // red + IR
       PPG_SAMPLE_RATE_HZ * MAX30102_SAMPLE_AVERAGE,        // pre-average rate
       411,                                                 // pulse width
-      4096);                                               // ADC range
+      MAX30102_ADC_RANGE);
   _max30102Ready = true;
   Serial.printf(
       "[sensor] MAX30102 ready (LED %u, %ux average, %u Hz to the FIFO, "
@@ -203,25 +203,37 @@ void SensorNode::beginMpu6050() {
       Serial.printf("[sensor] IMU at 0x%02X did not accept configuration\n", address);
       continue;
     }
-    delay(50);  // let the first conversion complete before trusting a read
-
-    // The real acceptance test. An ID byte only says what a part claims to be;
-    // one gravity says it is actually converting.
-    const float magnitude = readGravityMagnitude(address);
-    if (isnan(magnitude) ||
-        magnitude < kGravityPlausibleMinG ||
-        magnitude > kGravityPlausibleMaxG) {
-      Serial.printf(
-          "[sensor] IMU at 0x%02X configured but reads %.2f g, expected about 1 g - "
-          "check wiring and that it is still\n",
-          address, magnitude);
-      continue;
+    // A reset part needs time before its first conversion is meaningful, and
+    // how much varies by clone. Poll rather than guess a single delay.
+    float magnitude = NAN;
+    for (uint8_t attempt = 0; attempt < 10; ++attempt) {
+      delay(30);
+      magnitude = readGravityMagnitude(address);
+      if (!isnan(magnitude) &&
+          magnitude >= kGravityPlausibleMinG &&
+          magnitude <= kGravityPlausibleMaxG) {
+        break;
+      }
     }
 
     _mpu6050Address = address;
     _mpu6050Ready = true;
-    Serial.printf("[sensor] IMU ready at 0x%02X (WHO_AM_I=0x%02X, %.2f g at rest)\n",
-                  address, identity, magnitude);
+
+    // Report an implausible magnitude, but do not refuse the part over it.
+    // Rejecting here would repeat the mistake the WHO_AM_I whitelist made:
+    // failing closed on a working sensor and reporting nothing at all, which
+    // is strictly worse than reporting readings a human can see are wrong.
+    if (isnan(magnitude) ||
+        magnitude < kGravityPlausibleMinG ||
+        magnitude > kGravityPlausibleMaxG) {
+      Serial.printf(
+          "[sensor] IMU ready at 0x%02X (WHO_AM_I=0x%02X) but reads %.2f g at rest, "
+          "expected about 1 g - check it is still and the wiring is sound\n",
+          address, identity, magnitude);
+    } else {
+      Serial.printf("[sensor] IMU ready at 0x%02X (WHO_AM_I=0x%02X, %.2f g at rest)\n",
+                    address, identity, magnitude);
+    }
     return;
   }
 
@@ -310,10 +322,16 @@ void SensorNode::updateSignalQuality(uint32_t irValue) {
   // exactly how heart rate ends up permanently null with the sensor working.
   if (millis() - _lastIrLogMs >= 1000) {
     _lastIrLogMs = millis();
-    Serial.printf("[ppg] IR=%lu  threshold=%lu  finger=%s\n",
+    // 2^18-1 is the top of the ADC range. Railed there the waveform is flat,
+    // so no beat can be found however long a finger rests on it - which looks
+    // exactly like a working sensor reporting null.
+    const bool saturated = irValue >= 262100UL;
+    Serial.printf("[ppg] IR=%lu  threshold=%lu  finger=%s%s\n",
                   (unsigned long)irValue,
                   (unsigned long)FINGER_IR_THRESHOLD,
-                  _fingerPresent ? "yes" : "no");
+                  _fingerPresent ? "yes" : "no",
+                  saturated ? "  SATURATED - lower MAX30102_LED_BRIGHTNESS or"
+                              " raise MAX30102_ADC_RANGE" : "");
   }
 
   if (!_fingerPresent) {
