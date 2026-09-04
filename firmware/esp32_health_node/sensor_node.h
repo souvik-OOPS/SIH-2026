@@ -16,6 +16,7 @@ class SensorNode {
   void scanI2cBus();
   void beginMax30102();
   void beginMpu6050();
+  float readGravityMagnitude(uint8_t address);
   void updatePpg();
   void updateMotion();
   void updateDht22();

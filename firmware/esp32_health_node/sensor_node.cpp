@@ -55,13 +55,31 @@ int16_t signed16(uint8_t high, uint8_t low) {
   return static_cast<int16_t>((static_cast<uint16_t>(high) << 8) | low);
 }
 
-bool isSupportedMpuIdentity(uint8_t identity) {
-  // MPU6050-compatible parts often return a different ID even though they
-  // expose the same registers used below. The user's validated bring-up test
-  // supports these identities as well.
-  return identity == 0x68 || identity == 0x70 || identity == 0x71 ||
-      identity == 0x72;
+/// Identities we have seen on genuine and clone parts.
+///
+/// This is advisory only. It decides whether to print a warning, never
+/// whether to use the device: a whitelist fails closed on every clone nobody
+/// has catalogued yet, and the cheap GY-521 boards return all sorts of things
+/// - 0x73, 0x75, 0x78 and 0x98 are all in the wild - while exposing exactly
+/// the register map used below. Behaviour is the better test, so
+/// beginMpu6050() proves the part by reading gravity off it instead.
+bool isKnownMpuIdentity(uint8_t identity) {
+  return identity == 0x68 ||  // MPU6050
+      identity == 0x69 ||     // some clones echo their own bus address
+      identity == 0x70 ||     // MPU6500
+      identity == 0x71 ||     // MPU9250
+      identity == 0x72 ||     // MPU9255 / clone
+      identity == 0x73 ||     // clone
+      identity == 0x75 ||     // clone
+      identity == 0x78 ||     // clone
+      identity == 0x98;       // clone
 }
+
+/// A stationary IMU must see one gravity. Anything far from 1 g means the
+/// registers answered but the part is not really converting - a dead clone,
+/// a part still asleep, or the wrong chip entirely.
+constexpr float kGravityPlausibleMinG = 0.4f;
+constexpr float kGravityPlausibleMaxG = 2.2f;
 }  // namespace
 
 void SensorNode::begin() {
@@ -119,30 +137,76 @@ void SensorNode::beginMax30102() {
   Serial.println(F("[sensor] MAX30102 ready"));
 }
 
+/// Reads the accelerometer once and reports the magnitude in g.
+/// Returns NAN if the registers cannot be read.
+float SensorNode::readGravityMagnitude(uint8_t address) {
+  uint8_t raw[6] = {0};
+  if (!readMpuRegisters(address, kMpuRegisterAccelerometerXoutHigh, raw, sizeof(raw))) {
+    return NAN;
+  }
+  const float x = signed16(raw[0], raw[1]) / kMpuAccelerometerLsbPerG;
+  const float y = signed16(raw[2], raw[3]) / kMpuAccelerometerLsbPerG;
+  const float z = signed16(raw[4], raw[5]) / kMpuAccelerometerLsbPerG;
+  return sqrtf(x * x + y * y + z * z);
+}
+
 void SensorNode::beginMpu6050() {
   for (const uint8_t address : {0x68, 0x69}) {
+    // Does anything answer here at all? Separating this from the WHO_AM_I read
+    // distinguishes "nothing on the bus" from "something that will not
+    // identify itself", which are different wiring faults.
+    Wire.beginTransmission(address);
+    if (Wire.endTransmission() != 0) continue;
+
     uint8_t identity = 0xFF;
-    if (!readMpuRegisters(address, kMpuRegisterWhoAmI, &identity, 1) ||
-        !isSupportedMpuIdentity(identity)) {
+    const bool identityRead = readMpuRegisters(address, kMpuRegisterWhoAmI, &identity, 1);
+    if (!identityRead) {
+      Serial.printf("[sensor] IMU at 0x%02X answered but WHO_AM_I could not be read\n", address);
       continue;
     }
+
+    // Always print it. The previous build rejected unlisted identities in
+    // silence, which left a working clone indistinguishable from an unplugged
+    // module at the serial monitor.
+    Serial.printf("[sensor] IMU at 0x%02X WHO_AM_I=0x%02X%s\n", address, identity,
+                  isKnownMpuIdentity(identity) ? "" : "  (not in the known table)");
+
+    // Reset first. Several clones come up in a state where the configuration
+    // writes below are accepted but ignored until the part has been reset.
+    if (!writeMpuRegister(address, kMpuRegisterPowerManagement1, 0x80)) continue;
+    delay(100);
 
     if (!writeMpuRegister(address, kMpuRegisterPowerManagement1, 0x01) ||
         !writeMpuRegister(address, kMpuRegisterConfig, 0x03) ||
         !writeMpuRegister(address, kMpuRegisterSampleRateDivider, 0x04) ||
         !writeMpuRegister(address, kMpuRegisterGyroConfig, 0x08) ||
         !writeMpuRegister(address, kMpuRegisterAccelerometerConfig, 0x10)) {
-      Serial.println(F("[sensor] MPU6050 configuration failed"));
-      return;
+      Serial.printf("[sensor] IMU at 0x%02X did not accept configuration\n", address);
+      continue;
+    }
+    delay(50);  // let the first conversion complete before trusting a read
+
+    // The real acceptance test. An ID byte only says what a part claims to be;
+    // one gravity says it is actually converting.
+    const float magnitude = readGravityMagnitude(address);
+    if (isnan(magnitude) ||
+        magnitude < kGravityPlausibleMinG ||
+        magnitude > kGravityPlausibleMaxG) {
+      Serial.printf(
+          "[sensor] IMU at 0x%02X configured but reads %.2f g, expected about 1 g - "
+          "check wiring and that it is still\n",
+          address, magnitude);
+      continue;
     }
 
     _mpu6050Address = address;
     _mpu6050Ready = true;
-    Serial.printf("[sensor] MPU6050-compatible IMU ready at 0x%02X (WHO_AM_I=0x%02X)\n", address, identity);
+    Serial.printf("[sensor] IMU ready at 0x%02X (WHO_AM_I=0x%02X, %.2f g at rest)\n",
+                  address, identity, magnitude);
     return;
   }
 
-  Serial.println(F("[sensor] MPU6050-compatible IMU not found at 0x68 or 0x69"));
+  Serial.println(F("[sensor] no usable IMU at 0x68 or 0x69 - check SDA/SCL, 3V3 and GND"));
 }
 
 void SensorNode::update() {

@@ -188,6 +188,17 @@ class BleTelemetrySource implements TelemetrySource {
       await _handleDisconnect();
     } finally {
       _connecting = false;
+      // A disconnect that lands *during* connect leaves `_connecting` true
+      // while `_handleDisconnect` runs, so the rescan it schedules is dropped
+      // by the guard in `_scheduleRescan` and nothing ever retries.
+      //
+      // This is not hypothetical: flutter_blue_plus calls
+      // `disconnectAllDevices` on a Dart VM restart and enforces a 2 s gap, so
+      // a connect completed inside that window is torn down about 1.6 s later
+      // — after which the link stayed dead and the dashboard sat on its
+      // spinner indefinitely. Re-arming here, once the flag is clear, is what
+      // makes the next attempt happen.
+      if (_running && _device == null) _scheduleRescan();
     }
   }
 
@@ -206,7 +217,12 @@ class BleTelemetrySource implements TelemetrySource {
     await _connectionSubscription?.cancel();
     _connectionSubscription = null;
     try {
-      await device?.disconnect();
+      // Only tear down a link that is actually up. Calling disconnect() on an
+      // already-dead device makes flutter_blue_plus queue the request behind
+      // its 2 s "disconnect gap" — and that queued disconnect then kills the
+      // NEXT connection about 1.5 s after it establishes, which loops forever:
+      // connect, killed, retry, killed. The logs show exactly that, twice.
+      if (device != null && device.isConnected) await device.disconnect();
     } on Object {
       // The device may already be gone; rescan is still the correct recovery.
     }
