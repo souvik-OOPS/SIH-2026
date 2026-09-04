@@ -8,6 +8,10 @@
 
 namespace {
 constexpr uint32_t kMotionIntervalMs = 20;
+/// How often to retry a missing IMU. Long enough not to stall the telemetry
+/// loop on a bus that has nothing on it, short enough that reseating a wire
+/// shows up while a hand is still on the board.
+constexpr uint32_t kImuProbeIntervalMs = 5000;
 constexpr uint32_t kDhtIntervalMs = 2000;
 // Rain changes on a weather timescale; sampling it fast buys nothing and
 // only adds ADC noise to average away.
@@ -348,9 +352,19 @@ void SensorNode::updateSignalQuality(uint32_t irValue) {
 }
 
 void SensorNode::updateMotion() {
-  if (!_mpu6050Ready || millis() - _lastMotionReadMs < kMotionIntervalMs) {
-    return;
+  // The IMU used to be probed once, at boot. A module that was unplugged, or
+  // whose 3V3 rail sagged as more sensors were added to it, therefore stayed
+  // dead until the board was reflashed - the wiring could be repaired with the
+  // firmware still reporting null motion, which points the search at software
+  // that is working fine. Retry instead, so fixing the cable is enough.
+  if (!_mpu6050Ready) {
+    if (millis() - _lastImuProbeMs < kImuProbeIntervalMs) return;
+    _lastImuProbeMs = millis();
+    beginMpu6050();
+    if (!_mpu6050Ready) return;
   }
+
+  if (millis() - _lastMotionReadMs < kMotionIntervalMs) return;
   _lastMotionReadMs = millis();
 
   uint8_t rawValues[14] = {0};
@@ -359,6 +373,11 @@ void SensorNode::updateMotion() {
           kMpuRegisterAccelerometerXoutHigh,
           rawValues,
           sizeof(rawValues))) {
+    // A part that answered at boot and has now stopped has been unplugged or
+    // browned out. Drop back to probing so it can come back without a reboot.
+    Serial.println(F("[sensor] IMU stopped responding - will re-probe"));
+    _mpu6050Ready = false;
+    _lastImuProbeMs = millis();
     return;
   }
 
