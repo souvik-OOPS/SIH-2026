@@ -116,7 +116,7 @@ class TelemetryFrame {
     if (intensity == null) return null;
     if (intensity < 0.08) return 'Still';
     if (intensity < 0.30) return 'Light movement';
-    return 'Active';
+    return 'Heavy movement';
   }
 
   TelemetryFrame copyWith({

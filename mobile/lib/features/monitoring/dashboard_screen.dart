@@ -787,17 +787,19 @@ class _SensorStatusCard extends StatelessWidget {
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  frame.activityLabel == null
-                      ? 'Motion  --'
-                      : 'Motion  ${frame.activityLabel}'
-                            '  ·  ${frame.motionIntensityG!.toStringAsFixed(2)} g',
+                  // Say what the wearer is doing, not what the accelerometer
+                  // measured. A raw figure in g is not readable at a glance and
+                  // never falls to zero anyway, since gravity is always present.
+                  'Motion  ${frame.activityLabel ?? '--'}',
                   style: const TextStyle(fontWeight: FontWeight.w600),
                 ),
               ),
-              Text(
-                frame.contactState.label,
-                style: const TextStyle(color: Color(0xFFB8CED5), fontSize: 12),
-              ),
+              // The pulse sensor's contact state used to be printed here. It
+              // describes the finger on the MAX30102, not the IMU, so on the
+              // motion row it captioned one sensor's reading with another
+              // sensor's status - "No finger contact" next to a movement level
+              // that has nothing to do with a finger. It still appears under
+              // Signal confidence below, which is what it actually qualifies.
             ],
           ),
           const SizedBox(height: 18),
