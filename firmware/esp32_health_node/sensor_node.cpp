@@ -256,7 +256,14 @@ void SensorNode::beginMpu6050() {
     return;
   }
 
-  Serial.println(F("[sensor] no usable IMU at 0x68 or 0x69 - check SDA/SCL, 3V3 and GND"));
+  // Print this at most every 30 s. The probe now runs every 5 s, so an
+  // unqualified println here buried the log under one repeated line - and a
+  // log nobody can read is how the earlier faults stayed hidden. Throttling it
+  // keeps "IMU ready" visible the moment a reseated wire takes effect.
+  if (_lastImuMissWarnMs == 0 || millis() - _lastImuMissWarnMs >= 30000) {
+    _lastImuMissWarnMs = millis();
+    Serial.println(F("[sensor] no usable IMU at 0x68 or 0x69 - check SDA/SCL, 3V3 and GND"));
+  }
 }
 
 void SensorNode::update() {

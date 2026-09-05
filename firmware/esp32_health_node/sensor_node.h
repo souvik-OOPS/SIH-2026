@@ -30,6 +30,7 @@ class SensorNode {
   bool _max30102Ready = false;
   bool _mpu6050Ready = false;
   uint32_t _lastImuProbeMs = 0;
+  uint32_t _lastImuMissWarnMs = 0;
   uint8_t _mpu6050Address = 0;
   bool _dht22Ready = false;
 
