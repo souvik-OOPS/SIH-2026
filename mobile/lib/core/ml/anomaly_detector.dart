@@ -1,4 +1,5 @@
 import '../models/telemetry_frame.dart';
+import '../telemetry/signal_quality.dart';
 import 'anomaly_model.dart';
 
 /// Feeds telemetry into the on-device model and keeps its rolling window.
@@ -47,9 +48,19 @@ class AnomalyDetector {
     if (model == null) return null;
 
     // A frame the app itself distrusts must not reach the model. Feeding it
-    // values flagged as unreliable would manufacture anomalies out of sensor
+    // values flagged as unreliable manufactures anomalies out of sensor
     // dropout — the finger lifting off would look like a physiological event.
     if (frame.contactState == ContactState.noFinger) return null;
+
+    // Contact alone is not enough. The bad_signal fixture reports contact while
+    // carrying 7-38% confidence and HR stepping 74 -> 126 -> 49 -> 151 between
+    // consecutive seconds, which is not physiology but a sensor losing its
+    // grip. Scored raw, that window came out at 190x the anomaly threshold —
+    // the single loudest reading the model can produce, from a wearer who is
+    // fine. Sensor noise must never be able to shout louder than a real
+    // emergency, so the model is only fed readings the app would trust for
+    // display, matching the signalOk skip the backend applies.
+    if (frame.signalQuality < HeuristicSignalQualityModel.fairConfidence) return null;
 
     final sample = <String, double?>{};
     for (final feature in model.features) {
