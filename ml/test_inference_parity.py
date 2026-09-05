@@ -32,6 +32,19 @@ WINDOW, N_FEAT, HIDDEN, LATENT = 30, 2, 32, 8
 TOLERANCE = 1e-5
 
 
+def median5(win):
+    """Width-5 centred median filter, matching smooth() in anomalyModel.js.
+
+    The JS score() conditions its window this way before normalising, so the
+    reference has to do the same or the two are no longer computing the same
+    quantity - the test would be comparing a filtered pipeline against an
+    unfiltered one and reporting a real agreement as a failure.
+    """
+    padded = np.pad(win, ((2, 2), (0, 0)), mode="edge")
+    stacked = np.stack([padded[i:i + len(win)] for i in range(5)], axis=0)
+    return np.median(stacked, axis=0).astype(np.float32)
+
+
 def build_random_model(seed=7):
     rng = np.random.default_rng(seed)
     dims = [(WINDOW * N_FEAT, HIDDEN), (HIDDEN, LATENT), (LATENT, HIDDEN), (HIDDEN, WINDOW * N_FEAT)]
@@ -77,7 +90,7 @@ def main():
     win = np.stack([hr, spo2], axis=1).astype(np.float32)
 
     # --- numpy reference ---
-    x = ((win - mean) / std).reshape(-1)
+    x = ((median5(win) - mean) / std).reshape(-1)
     h = x.copy()
     for (W, b), a in zip(mats, acts):
         h = h @ W.T + b

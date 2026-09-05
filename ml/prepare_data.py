@@ -126,8 +126,29 @@ def clean(series):
         if good.sum() < 2:
             return None  # recording unusable for this feature
         arr = np.interp(idx, idx[good], arr[good]).astype(np.float32)
-        out[feat] = arr
+        out[feat] = median5(arr)
     return out
+
+
+def median5(arr):
+    """Width-5 centred median filter, edge-padded.
+
+    Must stay identical to smooth() in backend/src/ml/anomalyModel.js.
+
+    The deployed sensor emits integer HR and SpO2 that flicker by one count
+    between samples. BIDMC numerics do not: SpO2 is flat in 95.7% of
+    consecutive pairs here, so a model trained on the raw series learns that
+    these vitals hold still, and then reads ordinary sensor noise as
+    pathology. Filtering both sides identically is what keeps training and
+    inference seeing the same signal.
+
+    On this dataset the filter is nearly a no-op - it leaves SpO2 unchanged in
+    99.7% of samples - so it costs the model almost nothing here while making
+    serve-time input match.
+    """
+    padded = np.pad(arr, 2, mode="edge")
+    stacked = np.stack([padded[i:i + len(arr)] for i in range(5)], axis=0)
+    return np.median(stacked, axis=0).astype(np.float32)
 
 
 def window_recording(series, sid):

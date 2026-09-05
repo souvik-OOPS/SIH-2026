@@ -49,6 +49,18 @@ def run_js_score(spec, window_samples):
     return json.loads(out)
 
 
+def median5(win):
+    """Width-5 centred median filter, matching smooth() in anomalyModel.js.
+
+    score() conditions the window this way before normalising, so the numpy
+    reference must too - otherwise the test compares a filtered pipeline with
+    an unfiltered one and calls a correct implementation broken.
+    """
+    padded = np.pad(win, ((2, 2), (0, 0)), mode="edge")
+    stacked = np.stack([padded[i:i + len(win)] for i in range(5)], axis=0)
+    return np.median(stacked, axis=0).astype(np.float32)
+
+
 def test_multiple_random_seeds():
     print("Testing ML parity across 5 random architectural seeds...")
     for seed in [1, 42, 123, 777, 9999]:
@@ -84,7 +96,7 @@ def test_multiple_random_seeds():
         win = np.stack([hr, spo2], axis=1).astype(np.float32)
 
         # Numpy forward pass
-        x = ((win - mean) / std).reshape(-1)
+        x = ((median5(win) - mean) / std).reshape(-1)
         h = x.copy()
         for (W, b), a in zip(mats, acts):
             h = h @ W.T + b
