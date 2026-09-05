@@ -165,6 +165,121 @@ class DashboardScreen extends StatelessWidget {
 /// Manual SOS. Always confirms first: an accidental tap must not page the
 /// wearer's family, and the confirmation doubles as a preview of exactly what
 /// will be transmitted and to whom.
+/// The learned model's opinion, shown as a second opinion beside the rules.
+///
+/// Deliberately worded as similarity, not diagnosis. The autoencoder was
+/// trained only on healthy resting physiology and has no labels for named
+/// conditions, so the honest claim is "this window is unlike the normal it was
+/// shown" — never what is wrong with the wearer. It also never overrides the
+/// risk verdict above it; the rules are the floor and this sits on top.
+class _AnomalyCard extends StatelessWidget {
+  const _AnomalyCard({required this.session});
+
+  final TelemetrySession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final signals = theme.extension<SignalColors>();
+    final score = session.anomalyScore;
+    final ready = session.anomalyModelReady;
+    final progress = session.anomalyWindowProgress;
+
+    final String headline;
+    final String detail;
+    final Color tone;
+
+    if (!ready) {
+      headline = 'Model unavailable';
+      detail = 'Monitoring continues on the safety rules alone.';
+      tone = theme.colorScheme.onSurfaceVariant;
+    } else if (score == null) {
+      headline = 'Gathering baseline';
+      detail = progress <= 0
+          ? 'Waiting for a steady pulse reading.'
+          : '${(progress * 100).round()}% of the 30-second window collected.';
+      tone = theme.colorScheme.onSurfaceVariant;
+    } else if (score.ratio >= 1.6) {
+      headline = 'Unlike your normal';
+      detail = 'Pattern is ${score.ratio.toStringAsFixed(1)}x past the learned '
+          'threshold. This is a similarity score, not a diagnosis.';
+      tone = signals?.forRisk(RiskLevel.warning) ?? theme.colorScheme.error;
+    } else if (score.anomalous) {
+      headline = 'Slightly unusual';
+      detail = 'Pattern is ${score.ratio.toStringAsFixed(1)}x the learned '
+          'threshold. Watching for now.';
+      tone = signals?.forRisk(RiskLevel.watch) ?? theme.colorScheme.tertiary;
+    } else {
+      headline = 'Looks normal';
+      detail = 'Pattern matches your learned baseline '
+          '(${(score.ratio * 100).round()}% of threshold).';
+      tone = signals?.forRisk(RiskLevel.normal) ?? theme.colorScheme.primary;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: _cardDecoration,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.psychology_outlined, color: tone, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  headline,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: tone,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              Text(
+                'OFFLINE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  letterSpacing: 1.1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            detail,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          if (score != null) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: LinearProgressIndicator(
+                minHeight: 9,
+                value: (score.ratio / 3).clamp(0.0, 1.0),
+                color: tone,
+                backgroundColor: const Color(0xFF23434D),
+              ),
+            ),
+          ] else if (ready && progress > 0) ...[
+            const SizedBox(height: 12),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(9),
+              child: LinearProgressIndicator(
+                minHeight: 9,
+                value: progress,
+                color: theme.colorScheme.onSurfaceVariant,
+                backgroundColor: const Color(0xFF23434D),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 class _SosCard extends StatelessWidget {
   const _SosCard({
     required this.escalation,
@@ -508,6 +623,10 @@ class _DashboardBody extends StatelessWidget {
           assessment: assessment,
           trust: trust,
         ),
+        const SizedBox(height: 22),
+        Text('ON-DEVICE AI', style: _sectionStyle),
+        const SizedBox(height: 10),
+        _AnomalyCard(session: session),
         const SizedBox(height: 22),
         Text('EMERGENCY', style: _sectionStyle),
         const SizedBox(height: 10),

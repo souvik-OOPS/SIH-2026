@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/models/telemetry_frame.dart';
+import '../../core/ml/anomaly_detector.dart';
+import '../../core/ml/anomaly_model.dart';
 import '../../core/safety/risk_engine.dart';
 import '../../core/safety/safety_assessment.dart';
 import '../../core/telemetry/signal_quality.dart';
@@ -17,7 +19,9 @@ class TelemetrySession extends ChangeNotifier {
     this.staleCheckInterval = const Duration(seconds: 1),
     SignalQualityService? signalQualityService,
     RiskEngine? riskEngine,
-  }) : _source = source,
+    AnomalyDetector? anomalyDetector,
+  }) : _anomalyDetector = anomalyDetector,
+       _source = source,
        _demoControls = demoControls,
        _signalQualityService = signalQualityService ?? SignalQualityService(),
        _riskEngine = riskEngine ?? RiskEngine();
@@ -33,6 +37,10 @@ class TelemetrySession extends ChangeNotifier {
   final SignalQualityService _signalQualityService;
   final RiskEngine _riskEngine;
 
+  /// On-device learned model. Null until [loadModel] completes, and stays null
+  /// if the asset is missing — monitoring never depends on it.
+  AnomalyDetector? _anomalyDetector;
+
   StreamSubscription<TelemetryFrame>? _subscription;
   Timer? _staleTimer;
   TelemetryFrame? _latestFrame;
@@ -42,8 +50,35 @@ class TelemetrySession extends ChangeNotifier {
   bool _isRunning = false;
   bool _isStale = false;
   SafetyAssessment? _safetyAssessment;
+  AnomalyScore? _anomalyScore;
 
   TelemetryFrame? get latestFrame => _latestFrame;
+
+  /// The learned model's latest opinion, or null when it has no model, has not
+  /// filled its window yet, or the current frame carries no usable vitals.
+  ///
+  /// This is a second opinion shown alongside the rule verdict. It never
+  /// overrides [safetyAssessment]: the model was trained on resting ICU
+  /// physiology, it has no diagnostic labels, and it cannot name a condition —
+  /// so it may say a window looks unlike normal, never what is wrong.
+  AnomalyScore? get anomalyScore => _anomalyScore;
+
+  /// True once the bundled model is loaded and usable.
+  bool get anomalyModelReady => _anomalyDetector?.ready ?? false;
+
+  /// How much of the model's window has been gathered, 0..1.
+  double get anomalyWindowProgress {
+    final detector = _anomalyDetector;
+    if (detector == null || !detector.ready || detector.window == 0) return 0;
+    return (detector.samples / detector.window).clamp(0.0, 1.0);
+  }
+
+  /// Loads the bundled model. Safe to call more than once; never throws.
+  Future<void> loadModel() async {
+    if (_anomalyDetector != null) return;
+    _anomalyDetector = await AnomalyDetector.load();
+    notifyListeners();
+  }
   TelemetryConnectivity get connectivity => _connectivity;
   Object? get error => _error;
   bool get isRunning => _isRunning;
@@ -115,6 +150,8 @@ class TelemetrySession extends ChangeNotifier {
     _isStale = false;
     _safetyAssessment = null;
     _riskEngine.reset();
+    _anomalyDetector?.reset();
+    _anomalyScore = null;
     _error = null;
     _isRunning = false;
     _connectivity = TelemetryConnectivity.connecting;
@@ -144,6 +181,9 @@ class TelemetrySession extends ChangeNotifier {
     _connectivity = frame.connectivity;
     _isRunning = true;
     _isStale = false;
+    // Score before the rules run so the UI updates both from one frame.
+    final score = _anomalyDetector?.accept(frame);
+    if (score != null) _anomalyScore = score;
     _evaluateSafety();
     notifyListeners();
   }

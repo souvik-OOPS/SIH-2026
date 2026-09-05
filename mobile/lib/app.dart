@@ -58,6 +58,10 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
   void initState() {
     super.initState();
     unawaited(widget.session.start());
+    // Optional layer, same contract as the assistant: the learned model is a
+    // second opinion, and a missing or unreadable asset must leave the rule
+    // engine monitoring exactly as before.
+    unawaited(widget.session.loadModel());
     unawaited(_loadContacts());
     // Optional layer: a failure here must not affect monitoring.
     unawaited(widget.assistant.initialize());
