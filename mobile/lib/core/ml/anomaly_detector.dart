@@ -42,7 +42,16 @@ class AnomalyDetector {
   /// Feeds one frame and scores the window it completes.
   ///
   /// Returns null when there is no model, the window is not yet full, or the
-  /// frame carries no usable vitals.
+  /// frame cannot be trusted.
+  ///
+  /// A rejected frame clears the window rather than merely skipping it. The
+  /// model scores 30 seconds of physiology, and 30 trustworthy samples
+  /// collected either side of a dropout are not 30 seconds of anything — the
+  /// splice puts a step change in the middle of the window that the
+  /// autoencoder reads as a violent physiological event. On a live BLE link
+  /// with a finger going on and off the sensor, that produced a reading of
+  /// 214x the threshold while the dashboard beside it said "no finger
+  /// contact": the loudest alarm the model can raise, from no data at all.
   AnomalyScore? accept(TelemetryFrame frame) {
     final model = _model;
     if (model == null) return null;
@@ -50,7 +59,10 @@ class AnomalyDetector {
     // A frame the app itself distrusts must not reach the model. Feeding it
     // values flagged as unreliable manufactures anomalies out of sensor
     // dropout — the finger lifting off would look like a physiological event.
-    if (frame.contactState == ContactState.noFinger) return null;
+    if (frame.contactState == ContactState.noFinger) {
+      _buffer.clear();
+      return null;
+    }
 
     // Contact alone is not enough. The bad_signal fixture reports contact while
     // carrying 7-38% confidence and HR stepping 74 -> 126 -> 49 -> 151 between
@@ -60,7 +72,10 @@ class AnomalyDetector {
     // fine. Sensor noise must never be able to shout louder than a real
     // emergency, so the model is only fed readings the app would trust for
     // display, matching the signalOk skip the backend applies.
-    if (frame.signalQuality < HeuristicSignalQualityModel.fairConfidence) return null;
+    if (frame.signalQuality < HeuristicSignalQualityModel.fairConfidence) {
+      _buffer.clear();
+      return null;
+    }
 
     final sample = <String, double?>{};
     for (final feature in model.features) {
@@ -69,7 +84,10 @@ class AnomalyDetector {
         'SpO2' => frame.spo2Percent,
         _ => null,
       };
-      if (value == null) return null; // incomplete — skip, do not pad
+      if (value == null) {
+        _buffer.clear();
+        return null;
+      }
       sample[feature] = value;
     }
 

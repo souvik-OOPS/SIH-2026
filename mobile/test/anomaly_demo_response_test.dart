@@ -120,6 +120,45 @@ void main() {
     );
   });
 
+  test('losing contact clears the window instead of splicing across the gap', () {
+    // Regression, seen on a live BLE link. The window is 30 seconds of
+    // physiology; 30 trusted samples gathered either side of a dropout are not
+    // 30 seconds of anything, and the splice puts a step change mid-window
+    // that the autoencoder reads as a violent event. On the device that
+    // produced "Unlike your normal, 214x past the learned threshold" while the
+    // card directly above it read "No finger contact, 0% confidence".
+    final detector = AnomalyDetector.withModel(model);
+
+    TelemetryFrame frameAt(int t, {required bool trusted, double hr = 72}) {
+      return TelemetryParser.tryParseMap({
+        'ts': 1788249600 + t,
+        'hr': hr,
+        'spo2': 98,
+        'q': trusted ? 96 : 8,
+        'contact': trusted ? 'finger' : 'no_finger',
+      }, sourceType: TelemetrySourceType.replay,
+         connectivity: TelemetryConnectivity.connected)!;
+    }
+
+    // Nearly fill the window on good contact.
+    for (var i = 0; i < 29; i++) {
+      detector.accept(frameAt(i, trusted: true));
+    }
+    expect(detector.samples, 29);
+
+    // The finger lifts off.
+    expect(detector.accept(frameAt(29, trusted: false)), isNull);
+    expect(detector.samples, 0, reason: 'the partial window must be discarded');
+
+    // Contact returns at a very different heart rate. Without the reset this
+    // would complete a window straddling the gap and score it as an anomaly.
+    for (var i = 30; i < 59; i++) {
+      expect(detector.accept(frameAt(i, trusted: true, hr: 130)), isNull,
+          reason: 'the window must refill from scratch, not resume');
+    }
+    expect(detector.accept(frameAt(59, trusted: true, hr: 130)), isNotNull);
+  });
+
   test('a frame with no finger contact is never scored', () {
     // Feeding the model data the app itself distrusts would manufacture
     // anomalies out of the finger simply lifting off the sensor.

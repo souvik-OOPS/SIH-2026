@@ -182,8 +182,13 @@ class TelemetrySession extends ChangeNotifier {
     _isRunning = true;
     _isStale = false;
     // Score before the rules run so the UI updates both from one frame.
-    final score = _anomalyDetector?.accept(frame);
-    if (score != null) _anomalyScore = score;
+    //
+    // Assign unconditionally, including null. Keeping the last score when the
+    // detector declines to produce one left a stale verdict on screen
+    // indefinitely — the card read "Unlike your normal, 214x past threshold"
+    // directly above "No finger contact, 0% confidence". A model that has
+    // stopped having an opinion must visibly stop stating one.
+    _anomalyScore = _anomalyDetector?.accept(frame);
     _evaluateSafety();
     notifyListeners();
   }
