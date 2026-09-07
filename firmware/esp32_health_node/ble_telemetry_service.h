@@ -11,6 +11,12 @@ class BleTelemetryService {
 
   void begin();
   bool isConnected() const { return _connected; }
+
+ private:
+  size_t usableNotifyBytes() const;
+  uint16_t _lastFragmentCount = 0;
+
+ public:
   bool publish(const TelemetryData& data, char* jsonOut, size_t jsonOutSize);
 
   // Used only by the GATT server callbacks in the implementation file.

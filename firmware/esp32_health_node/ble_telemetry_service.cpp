@@ -7,7 +7,8 @@
 namespace {
 constexpr size_t kJsonBufferSize = 240;
 constexpr size_t kSafeNotifyBytes = 20;  // default ATT MTU (23) minus 3-byte header
-constexpr size_t kFragmentDataBytes = 7;
+constexpr size_t kMaxNotifyBytes = 220;  // ceiling for the fragment buffer
+constexpr size_t kFragmentHeaderBytes = 12;  // "@999,99/99:" plus a margin
 // A default-MTU frame takes about 20 notifications. Android can silently drop
 // a burst that is queued faster than its BLE connection interval, leaving the
 // phone unable to reassemble any frame. This stays well inside the 1 Hz
@@ -148,18 +149,58 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
   return written > 0 && static_cast<size_t>(written) < outSize;
 }
 
+/// Bytes of JSON that fit in one notification on the link as negotiated.
+///
+/// setMTU(185) only states what this device is willing to accept; the value
+/// actually in force is whatever the phone agreed to, and it is not known
+/// until a phone connects. The old code asked for 185 and then fragmented at
+/// 20 regardless, so every packet went out as two dozen notifications of seven
+/// JSON bytes each - on a link that had already agreed to carry the whole
+/// thing in one.
+///
+/// That cost far more than airtime. The app discards an entire packet if any
+/// single fragment is lost or arrives out of order, so one dropped
+/// notification in twenty-four threw away the whole reading: the OLED showed a
+/// heart rate the phone never received. And the 20 ms pacing between fragments
+/// blocked the main loop for about 460 ms of every second, which starved the
+/// pulse sensor of samples.
+size_t BleTelemetryService::usableNotifyBytes() const {
+  if (_server == nullptr) return kSafeNotifyBytes;
+  const uint16_t mtu = _server->getPeerMTU(_server->getConnId());
+  // Anything at or below the 23-byte default means no useful negotiation
+  // happened; fall back rather than trust a surprising number.
+  if (mtu <= 23) return kSafeNotifyBytes;
+  size_t usable = static_cast<size_t>(mtu) - 3;  // ATT notification header
+  if (usable > kMaxNotifyBytes) usable = kMaxNotifyBytes;
+  if (usable < kSafeNotifyBytes) usable = kSafeNotifyBytes;
+  return usable;
+}
+
 void BleTelemetryService::notifyFragments(const char* json) {
   const size_t length = strlen(json);
   const uint16_t sequence = _sequence++ % 1000;
-  const uint16_t total = (length + kFragmentDataBytes - 1) / kFragmentDataBytes;
+
+  const size_t notifyBytes = usableNotifyBytes();
+  const size_t dataBytes = notifyBytes > kFragmentHeaderBytes
+                               ? notifyBytes - kFragmentHeaderBytes
+                               : 7;
+  const uint16_t total = (length + dataBytes - 1) / dataBytes;
+
+  // The framing is unchanged, so a single-fragment packet is just "@N,1/1:"
+  // and the phone reassembles it through the same path as before.
+  if (total != _lastFragmentCount) {
+    _lastFragmentCount = total;
+    Serial.printf("[ble] MTU gives %u usable bytes: %u fragment%s per packet\n",
+                  (unsigned)notifyBytes, (unsigned)total, total == 1 ? "" : "s");
+  }
 
   for (uint16_t part = 1; part <= total; ++part) {
-    const size_t offset = (part - 1) * kFragmentDataBytes;
+    const size_t offset = (part - 1) * dataBytes;
     const size_t remaining = length - offset;
-    const size_t take = min(kFragmentDataBytes, remaining);
-    char fragment[kSafeNotifyBytes + 1] = {0};
+    const size_t take = min(dataBytes, remaining);
+    char fragment[kMaxNotifyBytes + 1] = {0};
     const int headerLength = snprintf(fragment, sizeof(fragment), "@%u,%u/%u:", sequence, part, total);
-    if (headerLength <= 0 || static_cast<size_t>(headerLength) + take > kSafeNotifyBytes) {
+    if (headerLength <= 0 || static_cast<size_t>(headerLength) + take > notifyBytes) {
       Serial.println(F("[ble] fragment framing error"));
       return;
     }

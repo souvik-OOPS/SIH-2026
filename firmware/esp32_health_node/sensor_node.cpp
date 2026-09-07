@@ -92,7 +92,21 @@ constexpr float kGravityPlausibleMaxG = 2.2f;
 
 void SensorNode::begin() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  Wire.setClock(400000);
+  // 100 kHz, not 400 kHz.
+  //
+  // The MPU6050 answers WHO_AM_I and then fails partway through configuration,
+  // over and over - "answered but WHO_AM_I could not be read" alternating with
+  // a clean read of 0x70. A chip that is absent does not answer at all, and one
+  // that is present and healthy does not stop halfway; that pattern is marginal
+  // signalling. Four devices on breadboard jumpers put enough capacitance on
+  // SDA and SCL that fast mode's 300 ns rise-time budget is not met, and the
+  // longest wire fails first.
+  //
+  // Standard mode allows 1000 ns, so the same wiring has over three times the
+  // margin. Nothing on this bus needs the speed: the OLED redraws once a
+  // second, the IMU is read at 50 Hz, and the MAX30102's FIFO is drained in
+  // small bursts.
+  Wire.setClock(100000);
   scanI2cBus();
 
   beginMax30102();
@@ -135,7 +149,10 @@ void SensorNode::scanI2cBus() {
 }
 
 void SensorNode::beginMax30102() {
-  if (!_max30102.begin(Wire, I2C_SPEED_FAST)) {
+  // I2C_SPEED_STANDARD to match the bus clock set in begin(). Passing
+  // I2C_SPEED_FAST here would put the shared bus back to 400 kHz behind the
+  // deliberate choice above.
+  if (!_max30102.begin(Wire, I2C_SPEED_STANDARD)) {
     Serial.println(F("[sensor] MAX30102 not found at expected address 0x57"));
     return;
   }
