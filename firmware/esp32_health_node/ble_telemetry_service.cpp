@@ -87,6 +87,7 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
   char gy[12];
   char gz[12];
   char rain[12];
+  char gas[12];
   const char* heartRateValue = data.heartRateValid
                                    ? dtostrf(data.heartRateBpm, 0, 1, heartRate)
                                    : "null";
@@ -117,11 +118,16 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
                             : "null";
   const char* rainValue =
       data.rainValid ? dtostrf(data.rainWetnessPercent, 0, 0, rain) : "null";
+  // "gas", not "aqi". The MQ-135 gives a relative gas-mixture index and no
+  // particulate measurement, so naming the field aqi would let the app render
+  // an uncalibrated resistance as a public-health number.
+  const char* gasValue =
+      data.gasValid ? dtostrf(data.gasIndex, 0, 0, gas) : "null";
 
   const int written = snprintf(
       out,
       outSize,
-      "{\"v\":1,\"u\":%lu,\"hr\":%s,\"o2\":%s,\"t\":%s,\"h\":%s,\"ax\":%s,\"ay\":%s,\"az\":%s,\"gx\":%s,\"gy\":%s,\"gz\":%s,\"rain\":%s,\"rr\":%d,\"q\":%u,\"f\":%u}",
+      "{\"v\":1,\"u\":%lu,\"hr\":%s,\"o2\":%s,\"t\":%s,\"h\":%s,\"ax\":%s,\"ay\":%s,\"az\":%s,\"gx\":%s,\"gy\":%s,\"gz\":%s,\"rain\":%s,\"rr\":%d,\"gas\":%s,\"gr\":%d,\"q\":%u,\"f\":%u}",
       static_cast<unsigned long>(data.uptimeMillis),
       heartRateValue,
       spo2Value,
@@ -135,6 +141,8 @@ bool BleTelemetryService::serialize(const TelemetryData& data, char* out, size_t
       gzValue,
       rainValue,
       data.rainRaw,
+      gasValue,
+      data.gasRaw,
       data.signalQuality,
       data.fingerPresent ? 1 : 0);
   return written > 0 && static_cast<size_t>(written) < outSize;

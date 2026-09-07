@@ -16,6 +16,7 @@ class SensorNode {
   void scanI2cBus();
   void beginMax30102();
   void beginMpu6050();
+  void updateGas();
   float readGravityMagnitude(uint8_t address);
   bool writeMpuRegisterRetrying(uint8_t address, uint8_t reg, uint8_t value);
   void updatePpg();
@@ -66,5 +67,9 @@ class SensorNode {
   /// board can be diagnosed from telemetry instead of by guesswork.
   int _rainRaw = -1;
   float _rainWetnessPercent = NAN;
+  int _gasRaw = -1;
+  float _gasIndex = NAN;
+  uint32_t _lastGasReadMs = 0;
+  uint32_t _lastGasLogMs = 0;
   bool _rainReady = false;
 };

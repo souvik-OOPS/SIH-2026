@@ -12,6 +12,10 @@ constexpr uint32_t kMotionIntervalMs = 20;
 /// loop on a bus that has nothing on it, short enough that reseating a wire
 /// shows up while a hand is still on the board.
 constexpr uint32_t kImuProbeIntervalMs = 5000;
+/// Gas changes on a room timescale, and each read averages several
+/// conversions, so there is nothing to gain from sampling it quickly.
+constexpr uint32_t kGasIntervalMs = 2000;
+constexpr uint8_t kGasSamples = 8;
 constexpr uint32_t kDhtIntervalMs = 2000;
 // Rain changes on a weather timescale; sampling it fast buys nothing and
 // only adds ADC noise to average away.
@@ -100,6 +104,15 @@ void SensorNode::begin() {
   analogReadResolution(12);
   analogSetPinAttenuation(RAIN_ANALOG_PIN, ADC_11db);
   Serial.println(F("[sensor] rain board on ADC1 GPIO 34"));
+#endif
+
+#if MQ135_ENABLED
+  analogReadResolution(12);
+  analogSetPinAttenuation(MQ135_ANALOG_PIN, ADC_11db);
+  Serial.printf(
+      "[sensor] MQ-135 gas sensor on ADC1 GPIO %d, %lus warm-up (relative"
+      " index, not a calibrated AQI)\n",
+      (int)MQ135_ANALOG_PIN, (unsigned long)(MQ135_WARMUP_MS / 1000));
 #endif
 
   _dht.begin();
@@ -271,6 +284,7 @@ void SensorNode::update() {
   updateMotion();
   updateDht22();
   updateRain();
+  updateGas();
 }
 
 void SensorNode::updatePpg() {
@@ -474,6 +488,70 @@ void SensorNode::updateDht22() {
 /// A board that is simply unplugged floats rather than reading a clean zero,
 /// which is why the raw count is published too: a constant mid-scale value
 /// with no water on the board means a disconnected sensor, not drizzle.
+void SensorNode::updateGas() {
+#if MQ135_ENABLED
+  if (millis() - _lastGasReadMs < kGasIntervalMs) return;
+  _lastGasReadMs = millis();
+
+  uint32_t total = 0;
+  for (uint8_t i = 0; i < kGasSamples; ++i) {
+    total += analogRead(MQ135_ANALOG_PIN);
+    delayMicroseconds(200);
+  }
+  const int raw = static_cast<int>(total / kGasSamples);
+  _gasRaw = raw;
+
+  // The heater must reach temperature before the film's resistance means
+  // anything. Report null until then rather than publishing the low reading of
+  // a cold sensor, which would otherwise look like exceptionally clean air at
+  // exactly the moment the device knows least.
+  if (millis() < MQ135_WARMUP_MS) {
+    _gasIndex = NAN;
+    if (millis() - _lastGasLogMs >= 5000) {
+      _lastGasLogMs = millis();
+      Serial.printf("[mq135] warming up, %lus left (raw %d)\n",
+                    (unsigned long)((MQ135_WARMUP_MS - millis()) / 1000), raw);
+    }
+    return;
+  }
+
+  // Rs/R0 from the divider. Rs = RL * (Vmax - Vout) / Vout, and with everything
+  // expressed as ADC counts the supply term cancels, leaving counts alone.
+  if (raw <= 0 || raw >= 4095) {
+    // Rails at either end are not readings. Zero means the pin is grounded or
+    // the module is unpowered; full scale usually means AO was wired straight
+    // to the pin without a divider, which overdrives a 3.3 V input from a 5 V
+    // output. Either way the honest answer is no value.
+    _gasIndex = NAN;
+    if (millis() - _lastGasLogMs >= 5000) {
+      _lastGasLogMs = millis();
+      Serial.printf(
+          "[mq135] raw %d is at the rail - check AO goes through a divider to a"
+          " 3.3 V pin, and that the module has 5 V\n", raw);
+    }
+    return;
+  }
+
+  const float rs = MQ135_LOAD_RESISTANCE_KOHM *
+                   (4095.0f - static_cast<float>(raw)) / static_cast<float>(raw);
+  const float ratio = rs / (MQ135_LOAD_RESISTANCE_KOHM * MQ135_CLEAN_AIR_RATIO);
+
+  // Ratio falls as contamination rises, so invert it into a rising index. This
+  // is a monotonic relative scale, not a concentration: it says "worse than
+  // the clean-air reference", never "N micrograms per cubic metre".
+  float index = (1.0f - ratio) * 100.0f;
+  if (index < 0.0f) index = 0.0f;
+  if (index > 100.0f) index = 100.0f;
+  _gasIndex = index;
+
+  if (millis() - _lastGasLogMs >= 5000) {
+    _lastGasLogMs = millis();
+    Serial.printf("[mq135] raw %d  Rs/R0 %.2f  index %.0f\n",
+                  raw, ratio, index);
+  }
+#endif
+}
+
 void SensorNode::updateRain() {
 #if RAIN_ENABLED
   if (millis() - _lastRainReadMs < kRainIntervalMs) return;
@@ -529,6 +607,10 @@ TelemetryData SensorNode::snapshot(bool oledReady) const {
   data.rainRaw = _rainRaw;
   data.rainValid = _rainReady && !isnan(_rainWetnessPercent);
   data.rainReady = _rainReady;
+  data.gasIndex = _gasIndex;
+  data.gasRaw = _gasRaw;
+  data.gasValid = !isnan(_gasIndex);
+  data.gasReady = MQ135_ENABLED && _gasRaw >= 0;
   data.signalQuality = _signalQuality;
   data.fingerPresent = _fingerPresent;
   data.max30102Ready = _max30102Ready;

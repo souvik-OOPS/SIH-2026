@@ -33,6 +33,19 @@ struct TelemetryData {
   int rainRaw = -1;
   bool rainValid = false;
 
+  /// Relative air-quality index from the MQ-135, 0 clean to 100 foul, with
+  /// gasRaw carrying the ADC count behind it so a bad calibration stays
+  /// visible rather than silently shifting the index.
+  ///
+  /// Deliberately not called AQI. The MQ-135 reads one resistance driven by
+  /// CO2, ammonia, NOx, benzene and smoke together, cannot separate them, and
+  /// measures no particulates at all. A published AQI figure means a specific
+  /// PM2.5 concentration; calling this that would invent a health number out
+  /// of an uncalibrated gas mixture.
+  float gasIndex = NAN;
+  int gasRaw = -1;
+  bool gasValid = false;
+
   uint8_t signalQuality = 0;
   bool fingerPresent = false;
 
@@ -40,5 +53,6 @@ struct TelemetryData {
   bool mpu6050Ready = false;
   bool dht22Ready = false;
   bool rainReady = false;
+  bool gasReady = false;
   bool oledReady = false;
 };
