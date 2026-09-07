@@ -27,6 +27,7 @@ constexpr uint32_t kPpgSampleIntervalMs = 1000UL / PPG_SAMPLE_RATE_HZ;
 constexpr uint8_t kMpuRegisterSampleRateDivider = 0x19;
 constexpr uint8_t kMpuRegisterConfig = 0x1A;
 constexpr uint8_t kMpuRegisterGyroConfig = 0x1B;
+constexpr uint8_t kMpuRegisterGyroXoutHigh = 0x43;
 constexpr uint8_t kMpuRegisterAccelerometerConfig = 0x1C;
 constexpr uint8_t kMpuRegisterAccelerometerXoutHigh = 0x3B;
 constexpr uint8_t kMpuRegisterPowerManagement1 = 0x6B;
@@ -227,6 +228,19 @@ bool SensorNode::writeMpuRegisterRetrying(uint8_t address, uint8_t reg, uint8_t 
   return false;
 }
 
+/// Reads the gyroscope once and reports the magnitude in degrees per second.
+/// Used only to confirm the board is still before calibrating against gravity.
+float SensorNode::readGyroMagnitude(uint8_t address) {
+  uint8_t raw[6] = {0};
+  if (!readMpuRegisters(address, kMpuRegisterGyroXoutHigh, raw, sizeof(raw))) {
+    return NAN;
+  }
+  const float x = signed16(raw[0], raw[1]) / _gyroscopeLsbPerDps;
+  const float y = signed16(raw[2], raw[3]) / _gyroscopeLsbPerDps;
+  const float z = signed16(raw[4], raw[5]) / _gyroscopeLsbPerDps;
+  return sqrtf(x * x + y * y + z * z);
+}
+
 /// Reads the accelerometer once and reports the magnitude in g.
 /// Returns NAN if the registers cannot be read.
 float SensorNode::readGravityMagnitude(uint8_t address) {
@@ -298,6 +312,49 @@ void SensorNode::beginMpu6050() {
     } else {
       _accelerometerLsbPerG = kMpuAccelerometerLsbPerG;
       _gyroscopeLsbPerDps = kMpuGyroscopeLsbPerDps;
+    }
+
+    // Calibrate the scale against gravity, because the register cannot be
+    // trusted either.
+    //
+    // This part reads back ACCEL_CONFIG as 0x10 - the +/- 8 g it was asked for
+    // - and then reports 4.16 g lying still. It accepts the range write, stores
+    // it, and goes on converting at +/- 2 g. WHO_AM_I is 0x70, so it is not a
+    // real MPU6050, and on these clones the range register is decorative.
+    //
+    // Gravity is the one reference always available: a still board measures 1 g
+    // whatever the part claims. Correcting by the nearest power of two - the
+    // ratio between adjacent ranges - turns a confident 4.16 g into 1.04 g.
+    //
+    // Guarded twice. It only runs when the gyro says the board is actually
+    // still, since calibrating mid-movement would bake motion into the scale;
+    // and it only accepts a correction that lands near 1 g, so a wild reading
+    // leaves the scale alone rather than inventing a factor to fit it.
+    {
+      const float gyroMagnitude = readGyroMagnitude(address);
+      const float raw = readGravityMagnitude(address);
+      if (!isnan(raw) && raw > 0.01f && !isnan(gyroMagnitude) && gyroMagnitude < 8.0f) {
+        static const float kRangeRatios[] = {0.125f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f};
+        float best = 1.0f;
+        float bestError = fabsf(raw - 1.0f);
+        for (const float ratio : kRangeRatios) {
+          const float corrected = raw / ratio;
+          const float error = fabsf(corrected - 1.0f);
+          if (error < bestError) {
+            bestError = error;
+            best = ratio;
+          }
+        }
+        if (best != 1.0f && bestError < 0.15f) {
+          _accelerometerLsbPerG *= best;
+          _gyroscopeLsbPerDps *= best;
+          Serial.printf(
+              "[sensor] IMU reported %.2f g at rest; its range register does not"
+              " match its output, so the scale is corrected by %.3fx to"
+              " %.0f LSB/g\n",
+              raw, best, _accelerometerLsbPerG);
+        }
+      }
     }
 
     // A reset part needs time before its first conversion is meaningful, and
