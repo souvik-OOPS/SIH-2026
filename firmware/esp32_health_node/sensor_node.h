@@ -17,6 +17,7 @@ class SensorNode {
   void beginMax30102();
   void beginMpu6050();
   void updateGas();
+  void processPpgSample(uint32_t ir, uint32_t red);
   float readGravityMagnitude(uint8_t address);
   bool writeMpuRegisterRetrying(uint8_t address, uint8_t reg, uint8_t value);
   void updatePpg();

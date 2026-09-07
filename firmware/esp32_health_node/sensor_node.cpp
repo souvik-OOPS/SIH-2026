@@ -288,17 +288,36 @@ void SensorNode::update() {
 }
 
 void SensorNode::updatePpg() {
-  if (!_max30102Ready || millis() - _lastPpgReadMs < kPpgSampleIntervalMs) {
-    return;
-  }
-  _lastPpgReadMs = millis();
+  if (!_max30102Ready) return;
 
   _max30102.check();
-  if (!_max30102.available()) return;
 
-  const uint32_t ir = _max30102.getIR();
-  const uint32_t red = _max30102.getRed();
-  _max30102.nextSample();
+  // Drain everything the FIFO holds, rather than taking one sample per poll.
+  //
+  // The Maxim algorithm reads a heart rate out of 100 samples by assuming they
+  // are evenly spaced at PPG_SAMPLE_RATE_HZ. That assumption is about the
+  // sensor's own conversion clock, and the FIFO's samples are evenly spaced
+  // whenever they are collected - so draining in bursts keeps the time base
+  // exact, while taking one per poll silently throws the rest away and
+  // stretches 100 samples across far more than four seconds.
+  //
+  // The loop is blocked for roughly half of every second: about 460 ms
+  // fragmenting telemetry over BLE at 20 ms a fragment, plus up to 400 ms
+  // every five seconds re-probing a missing IMU. At one sample per 40 ms poll
+  // that collected around twelve samples a second instead of twenty-five, and
+  // the algorithm - still dividing by four seconds - returned 93, 166, 115 and
+  // 214 bpm from a resting wearer, with SpO2 of 57%. Not noise: a clock error.
+  //
+  // The FIFO holds 32 samples, 1.28 s at 25 Hz, which covers the worst stall.
+  while (_max30102.available()) {
+    const uint32_t ir = _max30102.getIR();
+    const uint32_t red = _max30102.getRed();
+    _max30102.nextSample();
+    processPpgSample(ir, red);
+  }
+}
+
+void SensorNode::processPpgSample(uint32_t ir, uint32_t red) {
   updateSignalQuality(ir);
 
   if (!_fingerPresent) {
