@@ -15,6 +15,10 @@ android {
     }
 
     defaultConfig {
+        ndk { abiFilters += "arm64-v8a" }
+        if (file("../../vendor/llama.cpp/CMakeLists.txt").exists()) {
+            externalNativeBuild { cmake { arguments += "-DANDROID_STL=c++_shared" } }
+        }
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "in.sih.swasthyashield.swasthyashield_edge"
         // You can update the following values to match your application needs.
@@ -31,6 +35,9 @@ android {
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
         }
+    }
+    if (file("../../vendor/llama.cpp/CMakeLists.txt").exists()) {
+        externalNativeBuild { cmake { path = file("src/main/cpp/CMakeLists.txt"); version = "3.22.1" } }
     }
 }
 

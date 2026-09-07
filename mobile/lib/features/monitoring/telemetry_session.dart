@@ -86,6 +86,7 @@ class TelemetrySession extends ChangeNotifier {
     _anomalyDetector = await AnomalyDetector.load();
     notifyListeners();
   }
+
   TelemetryConnectivity get connectivity => _connectivity;
   Object? get error => _error;
   bool get isRunning => _isRunning;
@@ -195,7 +196,8 @@ class TelemetrySession extends ChangeNotifier {
     // confident stretch across it.
     _heartRateHistory.add(
       at: frame.timestamp,
-      bpm: frame.contactState == ContactState.noFinger ||
+      bpm:
+          frame.contactState == ContactState.noFinger ||
               frame.signalQuality < HeuristicSignalQualityModel.fairConfidence
           ? null
           : frame.heartRateBpm,
@@ -234,8 +236,21 @@ class TelemetrySession extends ChangeNotifier {
         last != null &&
         _connectivity != TelemetryConnectivity.disconnected &&
         DateTime.now().difference(last) > staleThreshold;
+    final updated = _safetyAssessment == null
+        ? null
+        : _riskEngine.advanceFallTimeout(_safetyAssessment!, DateTime.now());
+    if (updated != null) {
+      _safetyAssessment = updated;
+      notifyListeners();
+    }
     if (stale == _isStale) return;
     _isStale = stale;
+    _evaluateSafety();
+    notifyListeners();
+  }
+
+  void confirmOkay() {
+    _riskEngine.resolveFallCheckIn();
     _evaluateSafety();
     notifyListeners();
   }

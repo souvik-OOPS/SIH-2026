@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -463,7 +464,7 @@ void main() {
 
       final answer = await service.ask('is my sensor signal reliable?');
 
-      expect(answer, contains('cannot be trusted'));
+      expect(answer, contains('Fresh sensor data is unavailable'));
       expect(service.isReady, isTrue);
       expect(service.usesLlm, isFalse);
       // Prompt formatting is for the model, never for the screen.
@@ -476,12 +477,17 @@ void main() {
 
       final answer = await service.ask(
         'quarterly revenue forecast',
-        context: const AssistantContext(heartRate: 115, spo2: 96),
+        context: const AssistantContext(
+          heartRate: 115,
+          spo2: 96,
+          dataIsStale: true,
+        ),
       );
 
       expect(answer, contains('do not have that information offline'));
-      expect(answer, contains('115'));
-      expect(answer, contains('has not calculated a risk level'));
+      expect(answer, isNot(contains('115')));
+      expect(answer, contains('Fresh sensor data is unavailable'));
+      expect(answer, contains('risk assessment is not available'));
     });
 
     test(
@@ -491,9 +497,9 @@ void main() {
           engines: [FakeEngine(throwOnGenerate: true)],
         );
 
-        final answer = await service.ask('is my sensor signal reliable?');
+        final answer = await service.ask('heat');
 
-        expect(answer, contains('cannot be trusted'));
+        expect(answer, contains('Hot humid air'));
         expect(service.messages.last.isStoredAnswer, isTrue);
       },
     );
@@ -511,7 +517,7 @@ void main() {
         engines: [FakeEngine(reply: 'move to shade and drink water')],
       );
 
-      final answer = await service.ask('what should I do now?');
+      final answer = await service.ask('heat');
 
       expect(answer, 'move to shade and drink water');
       expect(service.streamingText, isEmpty, reason: 'cleared when done');
@@ -525,6 +531,7 @@ void main() {
     test('1. normal telemetry', () {
       final context = builder.build(
         frame: frame(hr: 72, spo2: 98, at: 28),
+        connectivity: TelemetryConnectivity.connected,
         signalTier: SignalQualityLevel.good,
         safety: const SafetyAssessment(riskLevel: RiskLevel.normal),
       );
@@ -603,7 +610,7 @@ void main() {
   // -------------------------------------------------------------------------
   // The guarantee the whole architecture exists to provide.
   // -------------------------------------------------------------------------
-   group('CRITICAL: LLM output can never modify application state', () {
+  group('CRITICAL: LLM output can never modify application state', () {
     const builder = AssistantContextBuilder();
 
     /// Maximally hostile: denies the emergency, declares everything fine,
@@ -633,7 +640,8 @@ void main() {
       final answer = await service.ask('Am I ok?', context: context);
 
       // The model said "fine". The application state did not move.
-      expect(answer, contains('Everything looks fine'));
+      expect(answer, isNot(contains('Everything looks fine')));
+      expect(answer, startsWith('Get help now'));
       expect(jsonEncode(context.toJson()), before);
       expect(context.riskLevel, RiskLevel.critical);
       expect(context.fallDetected, isTrue);
@@ -687,10 +695,10 @@ void main() {
         await service.ask('status?', context: context);
 
         // The engine saw the risk level...
-        expect(engine.lastRequest, isNotNull);
         expect(
-          engine.lastRequest!.toPrompt(),
-          contains('riskLevel: CRITICAL'),
+          engine.lastRequest,
+          isNull,
+          reason: 'Urgent guidance bypasses generation entirely.',
         );
         // ...and generate() returns a Stream<String>. There is no setter, no
         // callback and no out-parameter by which a reply could reach state.
@@ -712,5 +720,96 @@ void main() {
         isA<Future<String> Function(String, {AssistantContext? context})>(),
       );
     });
+  });
+
+  group('production guide regressions', () {
+    test('actual corpus ranks signal question first', () async {
+      final knowledge = await loadedKnowledge(
+        corpus: File(
+          'assets/knowledge/assistant_knowledge.json',
+        ).readAsStringSync(),
+      );
+      addTearDown(knowledge.dispose);
+      expect(
+        (await knowledge.search('Is my sensor signal reliable?')).first.id,
+        'signal_reliable',
+      );
+      expect(await knowledge.search('quarterly revenue forecast'), isEmpty);
+    });
+    test('Hindi guide contains complete valid translations', () async {
+      final rows =
+          (jsonDecode(
+                    File(
+                      'assets/knowledge/assistant_knowledge.json',
+                    ).readAsStringSync(),
+                  )
+                  as List)
+              .cast<Map<String, dynamic>>();
+      final english = rows.where((r) => r['language'] == 'en');
+      final hindi = rows.where((r) => r['language'] == 'hi');
+      expect(hindi.length, english.length);
+      expect(
+        hindi.every((r) => RegExp(r'[ऀ-ॿ]').hasMatch(r['answer'] as String)),
+        isTrue,
+      );
+      expect(
+        hindi.every((r) => !(r['answer'] as String).contains('???')),
+        isTrue,
+      );
+    });
+    test('Hindi no-match fallback remains Hindi', () async {
+      final service = await serviceWith();
+      service.language = AssistantLanguage.hindi;
+      final answer = await service.ask('अंतरिक्ष यात्रा');
+      expect(answer, contains('ऑफलाइन'));
+      expect(answer, isNot(contains('I do not have')));
+    });
+    test(
+      'actual reason and timestamp are included in warning answer',
+      () async {
+        final service = await serviceWith();
+        final answer = await service.ask(
+          'Why am I getting this warning?',
+          context: AssistantContext(
+            riskLevel: RiskLevel.warning,
+            heartRate: 125,
+            spo2: 96,
+            signalQuality: 'good',
+            connectivity: 'connected',
+            reasons: const ['heart_rate_deviation'],
+            measuredAt: DateTime(2026, 9, 7, 12, 30),
+          ),
+        );
+        expect(answer, contains('125 bpm'));
+        expect(answer, contains('heart rate differs from your baseline'));
+        expect(answer, contains('12:30:00'));
+      },
+    );
+    test('stale readings are not repeated as current values', () async {
+      final service = await serviceWith();
+      final answer = await service.ask(
+        'current status',
+        context: const AssistantContext(
+          heartRate: 175,
+          spo2: 82,
+          dataIsStale: true,
+        ),
+      );
+      expect(answer, contains('Fresh sensor data is unavailable'));
+      expect(answer, isNot(contains('175')));
+    });
+    test(
+      'context from previous turns reaches a subsequent model request',
+      () async {
+        final engine = FakeEngine(reply: 'Heat guidance');
+        final service = await serviceWith(engines: [engine]);
+        await service.ask('heat');
+        await service.ask('elaborate please');
+        expect(
+          engine.lastRequest!.conversation.join(' '),
+          contains('Heat guidance'),
+        );
+      },
+    );
   });
 }

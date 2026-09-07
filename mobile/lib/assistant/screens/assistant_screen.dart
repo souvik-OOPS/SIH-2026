@@ -6,6 +6,7 @@ import '../services/assistant_service.dart';
 import '../widgets/assistant_message_bubble.dart';
 import '../widgets/assistant_status_badge.dart';
 import 'assistant_diagnostics_screen.dart';
+import '../../core/safety/safety_guidance.dart';
 
 /// Chat surface for the offline assistant.
 ///
@@ -17,10 +18,12 @@ class AssistantScreen extends StatefulWidget {
     super.key,
     required this.assistant,
     required this.contextProvider,
+    this.stateListenable,
   });
 
   final AssistantService assistant;
   final AssistantContext Function() contextProvider;
+  final Listenable? stateListenable;
 
   @override
   State<AssistantScreen> createState() => _AssistantScreenState();
@@ -35,6 +38,12 @@ class _AssistantScreenState extends State<AssistantScreen> {
     'Explain my current condition.',
     'What should I do now?',
     'Is my sensor signal reliable?',
+  ];
+  static const _hindiSuggestions = [
+    'मुझे चेतावनी क्यों मिल रही है?',
+    'मेरी मौजूदा स्थिति समझाएँ।',
+    'मुझे अब क्या करना चाहिए?',
+    'क्या सेंसर सिग्नल भरोसेमंद है?',
   ];
 
   @override
@@ -70,7 +79,10 @@ class _AssistantScreenState extends State<AssistantScreen> {
     final assistant = widget.assistant;
 
     return AnimatedBuilder(
-      animation: assistant,
+      animation: Listenable.merge([
+        assistant,
+        if (widget.stateListenable != null) widget.stateListenable!,
+      ]),
       builder: (context, _) {
         final messages = assistant.messages;
         final streaming = assistant.streamingText;
@@ -102,7 +114,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
               IconButton(
                 tooltip: 'Clear conversation',
                 icon: const Icon(Icons.delete_sweep_outlined),
-                onPressed: messages.isEmpty
+                onPressed: messages.isEmpty || assistant.isGenerating
                     ? null
                     : assistant.clearConversation,
               ),
@@ -110,6 +122,22 @@ class _AssistantScreenState extends State<AssistantScreen> {
           ),
           body: Column(
             children: [
+              if (riskLevel.isElevated)
+                Container(
+                  width: double.infinity,
+                  color: Theme.of(context).colorScheme.errorContainer,
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    SafetyGuidance.action(
+                      riskLevel,
+                      widget.contextProvider().reasons,
+                      hindi: assistant.language == AssistantLanguage.hindi,
+                    ),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
                 child: Align(
@@ -124,7 +152,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
               if (!assistant.isReady) const _UnavailableNotice(),
               Expanded(
                 child: itemCount == 0
-                    ? _EmptyState(suggestions: _suggestions, onTap: _send)
+                    ? _EmptyState(
+                        suggestions:
+                            assistant.language == AssistantLanguage.hindi
+                            ? _hindiSuggestions
+                            : _suggestions,
+                        onTap: _send,
+                      )
                     : ListView.builder(
                         controller: _scrollController,
                         padding: const EdgeInsets.fromLTRB(20, 6, 20, 6),
@@ -320,9 +354,7 @@ class _Composer extends StatelessWidget {
                 minLines: 1,
                 maxLines: 4,
                 decoration: InputDecoration(
-                  hintText: enabled
-                      ? 'Ask a question…'
-                      : 'Assistant unavailable',
+                  hintText: enabled ? 'Ask a question…' : 'Please wait…',
                   filled: true,
                   fillColor: const Color(0xFF102833),
                   border: OutlineInputBorder(

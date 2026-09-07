@@ -10,22 +10,9 @@ import '../models/assistant_context.dart';
 import '../models/assistant_request.dart';
 import 'assistant_engine.dart';
 
-/// Qwen3-0.6B on the Qualcomm on-device stack, reached over platform channels.
-///
-/// All Qualcomm-specific code lives on the Kotlin side; this class knows only
-/// the channel contract, so nothing QNN-shaped leaks into the Flutter app.
-///
-/// **Hardware requirements are strict.** The Qualcomm AI Engine Direct backend
-/// is NPU-only and the published Genie/GenieX guidance targets Snapdragon
-/// 8 Elite class parts (Hexagon v73+) on Android 15+, with the QAIRT runtime
-/// present on device. On anything else [initialize] throws
-/// [AssistantEngineUnavailable] and the service falls through to the next
-/// engine — which is the normal, expected path on most phones.
-///
-/// **Not verified on hardware.** No Snapdragon Elite device was available, so
-/// this path is written against the documented channel contract and compiles,
-/// but has never executed a real inference. Treat every timing as unmeasured
-/// until [lastBenchmark] is populated by an actual run.
+/// Local GGUF inference over platform channels using llama.cpp on ARM64 CPUs.
+/// The legacy class/channel name is retained for compatibility. No NPU is
+/// required. A missing model falls through to the bundled offline guide.
 class QualcommQwenEngine implements AssistantEngine {
   QualcommQwenEngine({
     MethodChannel? methodChannel,
@@ -37,8 +24,8 @@ class QualcommQwenEngine implements AssistantEngine {
   static const _methodChannelName = 'in.sih.swasthyashield/qwen';
   static const _tokenChannelName = 'in.sih.swasthyashield/qwen_tokens';
 
-  /// Which AI Hub bundle to load. Configure at build time with
-  /// `--dart-define=QWEN_MODEL_ID=...`; never hard-code a token or key.
+  /// Legacy identifier retained in the channel contract. The native runtime
+  /// loads the GGUF imported into private app storage.
   static const _configuredModelId = String.fromEnvironment(
     'QWEN_MODEL_ID',
     defaultValue: 'qwen3-0.6b',
@@ -52,7 +39,7 @@ class QualcommQwenEngine implements AssistantEngine {
   AiBenchmarkResult? _benchmark;
 
   @override
-  String get displayName => 'Qwen3-0.6B (Qualcomm NPU)';
+  String get displayName => 'Qwen · local CPU';
 
   @override
   bool get isReady => _ready;
@@ -70,7 +57,7 @@ class QualcommQwenEngine implements AssistantEngine {
       if (result == null || result['ready'] != true) {
         throw AssistantEngineUnavailable(
           result?['reason'] as String? ??
-              'The Qualcomm runtime did not report ready.',
+              'The local runtime did not report ready.',
           code: 'not_ready',
         );
       }
@@ -78,12 +65,12 @@ class QualcommQwenEngine implements AssistantEngine {
       _ready = true;
     } on MissingPluginException {
       throw const AssistantEngineUnavailable(
-        'The Qualcomm assistant runtime is not built into this app.',
+        'The local assistant runtime is not built into this app.',
         code: 'missing_plugin',
       );
     } on PlatformException catch (error) {
       throw AssistantEngineUnavailable(
-        error.message ?? 'This device cannot run the Qualcomm assistant.',
+        error.message ?? 'This device cannot run the local assistant.',
         code: error.code,
       );
     }

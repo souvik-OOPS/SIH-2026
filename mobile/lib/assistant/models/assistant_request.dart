@@ -13,6 +13,7 @@ class AssistantRequest {
     this.knowledgeAnswers = const [],
     this.language = AssistantLanguage.english,
     this.maxOutputTokens = 220,
+    this.conversation = const [],
   });
 
   final String question;
@@ -27,6 +28,7 @@ class AssistantRequest {
   final List<String> knowledgeAnswers;
   final AssistantLanguage language;
   final int maxOutputTokens;
+  final List<String> conversation;
 
   /// The documented prompt order: knowledge, then state, then question.
   String toPrompt() {
@@ -34,7 +36,8 @@ class AssistantRequest {
         ? '(no matching local knowledge entries)'
         : knowledgeSnippets.join('\n\n');
 
-    return 'LOCAL KNOWLEDGE:\n$knowledge\n\n'
+    return 'RECENT CONVERSATION (not device facts):\n${conversation.join('\n')}\n\n'
+        'LOCAL KNOWLEDGE:\n$knowledge\n\n'
         'CURRENT DEVICE STATE:\n${context.toPromptBlock()}\n\n'
         'ANSWER IN: ${language.englishName}\n\n'
         'USER QUESTION:\n$question';

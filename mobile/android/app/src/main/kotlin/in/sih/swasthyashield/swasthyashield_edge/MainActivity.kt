@@ -2,9 +2,12 @@ package `in`.sih.swasthyashield.swasthyashield_edge
 
 import android.Manifest
 import android.content.Intent
+import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import java.io.File
+import java.util.concurrent.Executors
 import android.telephony.SmsManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -13,19 +16,50 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private var permissionResult: MethodChannel.Result? = null
     private var smsPermissionResult: MethodChannel.Result? = null
-    private var qwenChannel: QwenAssistantChannel? = null
+    private var modelImportResult: MethodChannel.Result? = null
+    private var notificationPermissionResult: MethodChannel.Result? = null
+
+    override fun provideFlutterEngine(context: Context): FlutterEngine = (application as ShieldApplication).engine()
+    override fun shouldDestroyEngineWithHost(): Boolean = false
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        // Isolated: nothing else in the app touches the Qualcomm runtime.
-        qwenChannel = QwenAssistantChannel(
-            applicationContext,
-            flutterEngine.dartExecutor.binaryMessenger,
-        )
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "in.sih.swasthyashield/sharing")
+            .setMethodCallHandler { call, result ->
+                if (call.method != "shareSummary") {
+                    result.notImplemented()
+                } else {
+                    val text = call.argument<String>("text")
+                    if (text.isNullOrBlank() || text.length > 16000) {
+                        result.error("invalid_summary", "Summary is empty or too long", null)
+                    } else try {
+                        val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(Intent.EXTRA_TEXT, text)
+                            .putExtra(Intent.EXTRA_TITLE, "SwasthyaShield summary")
+                        startActivity(Intent.createChooser(send, "Share summary"))
+                        result.success(null) // Chooser opened, not sent/delivered.
+                    } catch (error: Exception) {
+                        result.error("share_unavailable", error.message, null)
+                    }
+                }
+            }
+        // These permission/document operations require the visible Activity.
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "requestBlePermissions" -> requestBlePermissions(result)
+                    "importModel" -> {
+                        if (modelImportResult != null) result.error("import_in_progress", "A model import is already open", null)
+                        else {
+                            modelImportResult = result
+                            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), 26184)
+                        }
+                    }
+                    "requestNotificationPermission" -> {
+                        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) result.success(true)
+                        else if (notificationPermissionResult != null) result.error("request_in_progress", "Notification permission request in progress", null)
+                        else { notificationPermissionResult = result; requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 26183) }
+                    }
                     else -> result.notImplemented()
                 }
             }
@@ -164,6 +198,7 @@ class MainActivity : FlutterActivity() {
             it == PackageManager.PERMISSION_GRANTED
         }
         when (requestCode) {
+            26183 -> { notificationPermissionResult?.success(granted); notificationPermissionResult = null }
             bluetoothPermissionRequestCode -> {
                 permissionResult?.success(granted)
                 permissionResult = null
@@ -176,9 +211,43 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
-        qwenChannel?.dispose()
-        qwenChannel = null
         super.onDestroy()
+    }
+
+    @Deprecated("Activity result bridge for Flutter model import")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 26184) return
+        val result = modelImportResult ?: return
+        modelImportResult = null
+        val uri = data?.data
+        if (resultCode != RESULT_OK || uri == null) { result.success(false); return }
+        val worker = Executors.newSingleThreadExecutor()
+        worker.execute {
+            val partial = File(filesDir, "qwen.gguf.import")
+            try {
+                contentResolver.openInputStream(uri).use { input ->
+                    requireNotNull(input) { "Cannot open model file" }
+                    partial.outputStream().use { out ->
+                        val header = ByteArray(4)
+                        require(input.read(header) == 4 && header.toString(Charsets.US_ASCII) == "GGUF") { "Select a GGUF model file" }
+                        out.write(header)
+                        val buffer = ByteArray(1024 * 1024)
+                        var total = 4L
+                        while (true) {
+                            val n = input.read(buffer); if (n < 0) break
+                            total += n; require(total <= 1500L * 1024 * 1024) { "Choose the small Qwen3-0.6B model" }
+                            out.write(buffer, 0, n)
+                        }
+                    }
+                }
+                require(partial.renameTo(QwenRuntime.modelFile(this))) { "Could not save model" }
+                runOnUiThread { result.success(true) }
+            } catch (error: Exception) {
+                partial.delete()
+                runOnUiThread { result.error("import_failed", error.message, null) }
+            } finally { worker.shutdown() }
+        }
     }
 
     private companion object {

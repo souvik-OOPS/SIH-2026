@@ -24,6 +24,7 @@ class AssistantContextBuilder {
     TelemetryConnectivity connectivity = TelemetryConnectivity.disconnected,
     bool isStale = false,
     SafetyAssessment? safety,
+    DateTime? receivedAt,
   }) {
     if (frame == null) {
       return AssistantContext.noTelemetry(
@@ -53,6 +54,7 @@ class AssistantContextBuilder {
       sosPressed: frame.sosPressed,
       telemetryAvailable: true,
       sourceType: frame.sourceType.label.toLowerCase(),
+      measuredAt: receivedAt ?? frame.timestamp,
     );
   }
 

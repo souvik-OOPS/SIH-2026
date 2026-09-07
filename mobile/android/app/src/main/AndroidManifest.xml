@@ -17,11 +17,19 @@
          working when mobile data and Wi-Fi are down - the disaster case this
          project exists for. Only used for user-configured emergency contacts. -->
     <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <application
         android:label="SwasthyaShield Edge"
-        android:name="${applicationName}"
+        android:name=".ShieldApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher">
+        <service android:name=".MonitoringService" android:exported="false"
+            android:stopWithTask="false" android:foregroundServiceType="connectedDevice" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

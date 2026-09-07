@@ -2,16 +2,15 @@ package `in`.sih.swasthyashield.swasthyashield_edge
 
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import java.util.concurrent.Executors
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.EventChannel
 import io.flutter.plugin.common.MethodChannel
 
 /**
- * Bridge between Flutter and the Qualcomm on-device LLM runtime.
- *
- * Everything Qualcomm-specific is confined to this file and to
- * [QwenRuntime]. The Flutter side knows only the channel contract, so the
- * rest of the app has no dependency on QNN/QAIRT at all.
+ * Bridge between Flutter and the local llama.cpp CPU runtime.
  *
  * ## Contract
  *
@@ -27,15 +26,7 @@ import io.flutter.plugin.common.MethodChannel
  *  - `{token: String}` per token
  *  - `{done: true, benchmark: {...}}` at the end of a turn
  *
- * ## Status
- *
- * [QwenRuntime] is the seam where the QAIRT/GenieX runtime is bound. It is
- * deliberately NOT implemented here: doing so requires the QAIRT SDK, which
- * is license-gated, and a Snapdragon device to verify against. Until that
- * lands, [isSupported] returns false with a readable reason, the Dart layer
- * treats that as "engine unavailable", and the assistant falls back to its
- * offline knowledge base. That is a working, honest state — not a stub
- * pretending to be a model.
+ * Missing runtime or model files select the bundled offline guide in Dart.
  */
 class QwenAssistantChannel(
     private val context: Context,
@@ -46,6 +37,8 @@ class QwenAssistantChannel(
     private val eventChannel = EventChannel(messenger, EVENT_CHANNEL)
     private var events: EventChannel.EventSink? = null
     private var runtime: QwenRuntime? = null
+    private val initializer = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
     init {
         methodChannel.setMethodCallHandler(this)
@@ -64,7 +57,7 @@ class QwenAssistantChannel(
         result: MethodChannel.Result,
     ) {
         when (call.method) {
-            "initialize" -> initialize(call.argument<String>("modelId"), result)
+            "initialize" -> initialize(result)
             "generate" -> generate(call, result)
             "dispose" -> {
                 runtime?.close()
@@ -75,7 +68,7 @@ class QwenAssistantChannel(
         }
     }
 
-    private fun initialize(modelId: String?, result: MethodChannel.Result) {
+    private fun initialize(result: MethodChannel.Result) {
         val support = QwenRuntime.checkSupport(context)
         if (!support.supported) {
             // Not an error: most devices land here, and the Dart side treats
@@ -84,11 +77,17 @@ class QwenAssistantChannel(
             return
         }
         try {
+            initializer.execute {
+              try {
             val started = System.nanoTime()
-            val created = QwenRuntime.create(context, modelId ?: DEFAULT_MODEL_ID)
+            val previous = runtime
+            runtime = null
+            previous?.close()
+            val created = QwenRuntime.create(context)
             runtime = created
             val initMs = (System.nanoTime() - started) / 1_000_000
-            result.success(
+            created.initializationTimeMs = initMs
+            main.post { result.success(
                 mapOf(
                     "ready" to true,
                     "modelName" to created.modelName,
@@ -98,12 +97,14 @@ class QwenAssistantChannel(
                     "initializationTimeMs" to initMs,
                     "device" to "${Build.MANUFACTURER} ${Build.MODEL}",
                 ),
-            )
+            ) }
+              } catch (error: Throwable) { main.post { result.success(mapOf("ready" to false, "reason" to (error.message ?: "Local model failed to load"))) } }
+            }
         } catch (error: Throwable) {
             result.success(
                 mapOf(
                     "ready" to false,
-                    "reason" to (error.message ?: "The Qualcomm runtime failed to start."),
+                    "reason" to (error.message ?: "The local runtime failed to start."),
                 ),
             )
         }
@@ -152,12 +153,12 @@ class QwenAssistantChannel(
     }
 
     override fun onCancel(arguments: Any?) {
+        runtime?.cancel()
         events = null
     }
 
     private companion object {
         const val METHOD_CHANNEL = "in.sih.swasthyashield/qwen"
         const val EVENT_CHANNEL = "in.sih.swasthyashield/qwen_tokens"
-        const val DEFAULT_MODEL_ID = "qwen3-0.6b"
     }
 }

@@ -13,6 +13,8 @@ import '../../core/telemetry/telemetry_source.dart';
 import '../escalation/emergency_contacts_sheet.dart';
 import 'heart_rate_chart.dart';
 import 'telemetry_session.dart';
+import 'monitoring_controller.dart';
+import 'emergency_summary_screen.dart';
 
 class DashboardScreen extends StatelessWidget {
   const DashboardScreen({
@@ -25,6 +27,9 @@ class DashboardScreen extends StatelessWidget {
     required this.onConnectLiveBle,
     required this.onReturnToReplay,
     this.onToggleTheme,
+    this.monitoring,
+    this.activityBuilder,
+    this.settingsBuilder,
   });
 
   final TelemetrySession session;
@@ -37,15 +42,55 @@ class DashboardScreen extends StatelessWidget {
 
   /// Optional so the screen still builds anywhere it is used without one.
   final VoidCallback? onToggleTheme;
+  final MonitoringController? monitoring;
+  final WidgetBuilder? activityBuilder, settingsBuilder;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([session, escalation]),
+      animation: Listenable.merge([session, escalation, ?monitoring]),
       builder: (context, _) {
         final frame = session.latestFrame;
         final replayMode = session.supportsDemoControls;
         return Scaffold(
+          bottomNavigationBar: NavigationBar(
+            selectedIndex: 0,
+            destinations: const [
+              NavigationDestination(
+                icon: Icon(Icons.monitor_heart_outlined),
+                label: 'Live',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.history),
+                label: 'Activity',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.chat_bubble_outline),
+                label: 'Assistant',
+              ),
+              NavigationDestination(
+                icon: Icon(Icons.settings_outlined),
+                label: 'Settings',
+              ),
+            ],
+            onDestinationSelected: (index) {
+              final WidgetBuilder? builder = switch (index) {
+                1 => activityBuilder,
+                2 => (_) => AssistantScreen(
+                  assistant: assistant,
+                  contextProvider: assistantContext,
+                  stateListenable: session,
+                ),
+                3 => settingsBuilder,
+                _ => null,
+              };
+              if (builder != null) {
+                Navigator.of(
+                  context,
+                ).push(MaterialPageRoute<void>(builder: builder));
+              }
+            },
+          ),
           appBar: AppBar(
             backgroundColor: Colors.transparent,
             surfaceTintColor: Colors.transparent,
@@ -74,18 +119,6 @@ class DashboardScreen extends StatelessWidget {
                   ),
                   onPressed: onToggleTheme,
                 ),
-              IconButton(
-                tooltip: 'Assistant',
-                icon: const Icon(Icons.chat_bubble_outline),
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => AssistantScreen(
-                      assistant: assistant,
-                      contextProvider: assistantContext,
-                    ),
-                  ),
-                ),
-              ),
               IconButton(
                 tooltip: 'Developer settings',
                 icon: const Icon(Icons.developer_mode_outlined),
@@ -119,6 +152,7 @@ class DashboardScreen extends StatelessWidget {
                     frame: frame,
                     escalation: escalation,
                     onManageContacts: () => _showContactsSheet(context),
+                    monitoring: monitoring,
                   ),
           ),
         );
@@ -203,17 +237,20 @@ class _AnomalyCard extends StatelessWidget {
       tone = theme.colorScheme.onSurfaceVariant;
     } else if (score.ratio >= 1.6) {
       headline = 'Unlike your normal';
-      detail = 'Pattern is ${score.ratio.toStringAsFixed(1)}x past the learned '
+      detail =
+          'Pattern is ${score.ratio.toStringAsFixed(1)}x past the learned '
           'threshold. This is a similarity score, not a diagnosis.';
       tone = signals?.forRisk(RiskLevel.warning) ?? theme.colorScheme.error;
     } else if (score.anomalous) {
       headline = 'Slightly unusual';
-      detail = 'Pattern is ${score.ratio.toStringAsFixed(1)}x the learned '
+      detail =
+          'Pattern is ${score.ratio.toStringAsFixed(1)}x the learned '
           'threshold. Watching for now.';
       tone = signals?.forRisk(RiskLevel.watch) ?? theme.colorScheme.tertiary;
     } else {
       headline = 'Looks normal';
-      detail = 'Pattern matches your learned baseline '
+      detail =
+          'Pattern matches your learned baseline '
           '(${(score.ratio * 100).round()}% of threshold).';
       tone = signals?.forRisk(RiskLevel.normal) ?? theme.colorScheme.primary;
     }
@@ -526,24 +563,50 @@ class _DashboardBody extends StatelessWidget {
     required this.frame,
     required this.escalation,
     required this.onManageContacts,
+    this.monitoring,
   });
 
   final TelemetrySession session;
   final TelemetryFrame frame;
   final EscalationService escalation;
   final VoidCallback onManageContacts;
+  final MonitoringController? monitoring;
 
   @override
   Widget build(BuildContext context) {
     final assessment = session.signalAssessment;
     final safety = session.safetyAssessment;
     final trust = safety?.sensorTrust;
+    final fresh =
+        session.isRunning &&
+        !session.isStale &&
+        session.connectivity == TelemetryConnectivity.connected;
+    final usablePulse = fresh && (trust?.canUsePhysiology ?? false);
     final signalColour = trust == null
         ? _signalQualityColour(assessment.level)
         : _sensorTrustColour(trust.state);
     return ListView(
       padding: const EdgeInsets.fromLTRB(20, 4, 20, 32),
       children: [
+        if (monitoring != null && !session.supportsDemoControls)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Text(
+              monitoring!.error ??
+                  (monitoring!.enabled
+                      ? (monitoring!.status.notificationsAllowed
+                            ? 'Background monitoring on · alerts enabled'
+                            : 'Background monitoring on · enable notifications in Settings')
+                      : 'Monitoring stopped · reconnect to resume'),
+              style: TextStyle(
+                color:
+                    monitoring!.error != null ||
+                        !monitoring!.status.notificationsAllowed
+                    ? const Color(0xFFF6C859)
+                    : const Color(0xFF49D6C7),
+              ),
+            ),
+          ),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -579,12 +642,23 @@ class _DashboardBody extends StatelessWidget {
         ),
         const SizedBox(height: 18),
         _RiskCard(assessment: safety),
+        if (safety?.fallState == FallWorkflowState.checkIn)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: FilledButton.icon(
+              onPressed: session.confirmOkay,
+              icon: const Icon(Icons.check_circle_outline),
+              label: const Text("I'M OK — dismiss fall check-in"),
+            ),
+          ),
         const SizedBox(height: 20),
         Text('LIVE VITALS', style: _sectionStyle),
         const SizedBox(height: 10),
         _HeroVital(
           label: 'HEART RATE',
-          value: frame.heartRateBpm?.toStringAsFixed(0) ?? '—',
+          value: usablePulse
+              ? frame.heartRateBpm?.toStringAsFixed(0) ?? '—'
+              : '—',
           unit: 'BPM',
           trend: session.heartRateHistory,
           trendColour: signalColour,
@@ -601,19 +675,25 @@ class _DashboardBody extends StatelessWidget {
             _VitalTile(
               icon: Icons.water_drop_outlined,
               label: 'SpO₂',
-              value: frame.spo2Percent?.toStringAsFixed(0) ?? '—',
+              value: usablePulse
+                  ? frame.spo2Percent?.toStringAsFixed(0) ?? '—'
+                  : '—',
               unit: '%',
             ),
             _VitalTile(
               icon: Icons.device_thermostat_outlined,
               label: 'AIR TEMP',
-              value: frame.ambientTemperatureC?.toStringAsFixed(1) ?? '--',
+              value: fresh
+                  ? frame.ambientTemperatureC?.toStringAsFixed(1) ?? '—'
+                  : '—',
               unit: '°C',
             ),
             _VitalTile(
               icon: Icons.opacity_outlined,
               label: 'HUMIDITY',
-              value: frame.humidityPercent?.toStringAsFixed(0) ?? '--',
+              value: fresh
+                  ? frame.humidityPercent?.toStringAsFixed(0) ?? '—'
+                  : '—',
               unit: '%',
             ),
           ],
@@ -634,6 +714,19 @@ class _DashboardBody extends StatelessWidget {
         const SizedBox(height: 22),
         Text('EMERGENCY', style: _sectionStyle),
         const SizedBox(height: 10),
+        if (monitoring != null) ...[
+          OutlinedButton.icon(
+            icon: const Icon(Icons.summarize_outlined),
+            label: const Text('Preview emergency summary'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute<void>(
+                builder: (_) => EmergencySummaryScreen(monitoring: monitoring!),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+        ],
         _SosCard(
           escalation: escalation,
           frame: frame,
@@ -698,19 +791,21 @@ class _RiskCard extends StatelessWidget {
                   ),
                   if (safety.explanations.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    ...safety.explanations.take(4).map(
-                      (reason) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          '- ${reason.detail}',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            height: 1.25,
-                            color: Color(0xFFB8CED5),
+                    ...safety.explanations
+                        .take(4)
+                        .map(
+                          (reason) => Padding(
+                            padding: const EdgeInsets.only(bottom: 4),
+                            child: Text(
+                              '- ${reason.detail}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                height: 1.25,
+                                color: Color(0xFFB8CED5),
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
                   ],
                 ],
               ),
@@ -809,9 +904,12 @@ class _HeroVital extends StatelessWidget {
               children: [
                 Text(value, style: theme.textTheme.displayLarge),
                 const SizedBox(width: 8),
-                Text(unit, style: theme.textTheme.titleLarge?.copyWith(
-                  color: theme.textTheme.labelLarge?.color,
-                )),
+                Text(
+                  unit,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: theme.textTheme.labelLarge?.color,
+                  ),
+                ),
               ],
             ),
           ),
@@ -971,7 +1069,8 @@ class _SensorStatusCard extends StatelessWidget {
             borderRadius: BorderRadius.circular(9),
             child: LinearProgressIndicator(
               minHeight: 9,
-              value: trust?.state == SensorTrustState.reacquiring ||
+              value:
+                  trust?.state == SensorTrustState.reacquiring ||
                       trust?.state == SensorTrustState.stale ||
                       assessment.level == SignalQualityLevel.invalid
                   ? null
@@ -986,10 +1085,7 @@ class _SensorStatusCard extends StatelessWidget {
               alignment: Alignment.centerLeft,
               child: Text(
                 trust!.reasons.first,
-                style: const TextStyle(
-                  color: Color(0xFFB8CED5),
-                  fontSize: 12,
-                ),
+                style: const TextStyle(color: Color(0xFFB8CED5), fontSize: 12),
               ),
             ),
           ],
@@ -1039,10 +1135,7 @@ class _EventCard extends StatelessWidget {
             Expanded(
               child: Text(
                 message,
-                style: const TextStyle(
-                  height: 1.35,
-                  color: Color(0xFFC2D7DA),
-                ),
+                style: const TextStyle(height: 1.35, color: Color(0xFFC2D7DA)),
               ),
             ),
           ],
@@ -1050,8 +1143,8 @@ class _EventCard extends StatelessWidget {
       );
     }
     final message = frame.sosPressed
-        ? 'Replay SOS input received — escalation is scheduled for Day 8.'
-        : 'No risk rules enabled in Day 1. Replay packets are being received.';
+        ? 'SOS input received. Open emergency contacts to request help.'
+        : 'Waiting for a risk assessment from the incoming readings.';
     return Container(
       padding: const EdgeInsets.all(17),
       decoration: _cardDecoration,

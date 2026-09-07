@@ -44,9 +44,7 @@ class AssistantDiagnosticsScreen extends StatelessWidget {
                   ),
                   _Row(
                     label: 'Retrieval',
-                    value: assistant.knowledge.usesFts
-                        ? 'SQLite FTS4'
-                        : 'SQLite LIKE (FTS unavailable)',
+                    value: 'Ranked local guide · exact-match priority',
                   ),
                   _Row(
                     label: 'Answer language',
@@ -57,7 +55,7 @@ class AssistantDiagnosticsScreen extends StatelessWidget {
               if (assistant.engineFailureReason != null) ...[
                 const SizedBox(height: 16),
                 _Card(
-                  title: 'Why the NPU engine is not active',
+                  title: 'Local model setup',
                   children: [
                     Text(
                       assistant.engineFailureReason!,
@@ -68,10 +66,10 @@ class AssistantDiagnosticsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     const Text(
-                      'Qwen3-0.6B runs on the Qualcomm NPU, which needs a '
-                      'Snapdragon 8 Elite class device on Android 15+ with the '
-                      'QAIRT runtime present. On other phones the assistant '
-                      'answers from its offline guide instead.',
+                      'The local CPU runtime works on arm64 Android phones. '
+                      'Import the official Qwen3-0.6B GGUF once; subsequent '
+                      'answers need no internet. Urgent instructions always '
+                      'come directly from the monitoring guide.',
                       style: TextStyle(
                         fontSize: 12,
                         color: Color(0xFF91AAB5),
@@ -81,6 +79,18 @@ class AssistantDiagnosticsScreen extends StatelessWidget {
                   ],
                 ),
               ],
+              const SizedBox(height: 16),
+              OutlinedButton.icon(
+                onPressed: assistant.isGenerating
+                    ? null
+                    : assistant.importLocalModel,
+                icon: const Icon(Icons.file_open_outlined),
+                label: const Text('Import Qwen GGUF model'),
+              ),
+              TextButton(
+                onPressed: assistant.isGenerating ? null : assistant.initialize,
+                child: const Text('Reload local model'),
+              ),
               const SizedBox(height: 16),
               if (benchmark == null)
                 const _Card(
@@ -120,17 +130,21 @@ class _BenchmarkCard extends StatelessWidget {
         _Row(label: 'Backend', value: result.runtimeBackend),
         _Row(
           label: 'Init time',
-          value: '${result.initializationTime.inMilliseconds} ms',
+          value: result.initializationTime.isNegative
+              ? 'Not measured'
+              : '${result.initializationTime.inMilliseconds} ms',
         ),
         _Row(
           label: 'Time to first token',
-          value: '${result.timeToFirstToken.inMilliseconds} ms',
+          value: result.timeToFirstToken.isNegative
+              ? 'Not measured'
+              : '${result.timeToFirstToken.inMilliseconds} ms',
         ),
         _Row(
-          label: 'Throughput',
+          label: 'Throughput incl. prompt',
           value: '${result.tokensPerSecond.toStringAsFixed(1)} tok/s',
         ),
-        _Row(label: 'Peak memory', value: result.peakMemoryLabel),
+        _Row(label: 'App peak memory', value: result.peakMemoryLabel),
         if (result.deviceLabel != null)
           _Row(label: 'Device', value: result.deviceLabel!),
       ],

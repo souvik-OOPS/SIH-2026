@@ -23,11 +23,13 @@ class BleTelemetrySource implements TelemetrySource {
   BleTelemetrySource({
     BlePermissionService? permissions,
     ReconnectBackoff? backoff,
+    this.permissionsAlreadyGranted = false,
   }) : _permissions = permissions ?? BlePermissionService(),
        _backoff = backoff ?? ReconnectBackoff();
 
   final BlePermissionService _permissions;
   final ReconnectBackoff _backoff;
+  final bool permissionsAlreadyGranted;
   final StreamController<TelemetryFrame> _frames =
       StreamController<TelemetryFrame>.broadcast(sync: true);
   final BlePacketAssembler _assembler = BlePacketAssembler();
@@ -48,7 +50,8 @@ class BleTelemetrySource implements TelemetrySource {
   @override
   Future<void> start() async {
     if (_running) return;
-    if (!await _permissions.requestScanAndConnect()) {
+    if (!permissionsAlreadyGranted &&
+        !await _permissions.requestScanAndConnect()) {
       throw StateError('Nearby-device permission was not granted.');
     }
 

@@ -13,6 +13,10 @@ import 'services/android_sms_gateway.dart';
 import 'services/ble_telemetry_source.dart';
 import 'services/contact_store.dart';
 import 'services/replay_telemetry_source.dart';
+import 'services/ble_permission_service.dart';
+import 'features/monitoring/monitoring_controller.dart';
+import 'features/monitoring/activity_screen.dart';
+import 'features/monitoring/monitoring_settings_screen.dart';
 
 class SwasthyaShieldApp extends StatefulWidget {
   const SwasthyaShieldApp({
@@ -42,7 +46,10 @@ class SwasthyaShieldApp extends StatefulWidget {
   State<SwasthyaShieldApp> createState() => _SwasthyaShieldAppState();
 }
 
-class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
+class _SwasthyaShieldAppState extends State<SwasthyaShieldApp>
+    with WidgetsBindingObserver {
+  late final MonitoringController _monitoring;
+
   /// Dark is the demo default. Light is offered because a dark UI loses
   /// contrast punch on a projector in a lit room, where the black level rises
   /// and the whole image goes muddy.
@@ -50,14 +57,19 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
 
   void _toggleTheme() {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode = _themeMode == ThemeMode.dark
+          ? ThemeMode.light
+          : ThemeMode.dark;
     });
   }
 
   @override
   void initState() {
     super.initState();
-    unawaited(widget.session.start());
+    WidgetsBinding.instance.addObserver(this);
+    _monitoring = MonitoringController(widget.session);
+    widget.assistant.liveContextProvider = _assistantContext;
+    unawaited(_restoreMonitoring());
     // Optional layer, same contract as the assistant: the learned model is a
     // second opinion, and a missing or unreadable asset must leave the rule
     // engine monitoring exactly as before.
@@ -65,6 +77,32 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
     unawaited(_loadContacts());
     // Optional layer: a failure here must not affect monitoring.
     unawaited(widget.assistant.initialize());
+  }
+
+  Future<void> _restoreMonitoring() async {
+    final restore = await _monitoring.initialize(() => widget.session.stop());
+    if (restore) {
+      if (!_monitoring.status.running) {
+        try {
+          await _monitoring.start();
+        } on Object {
+          _monitoring.error =
+              'Reconnect from the Live screen to resume background monitoring.';
+          await _monitoring.refresh();
+          return;
+        }
+      }
+      await widget.session.replaceSource(
+        BleTelemetrySource(permissionsAlreadyGranted: true),
+      );
+    } else {
+      await widget.session.start();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_monitoring.refresh());
   }
 
   Future<void> _loadContacts() async {
@@ -86,19 +124,34 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
     connectivity: widget.session.connectivity,
     isStale: widget.session.isStale,
     safety: widget.session.safetyAssessment,
+    receivedAt: widget.session.lastFrameAt,
   );
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _monitoring.dispose();
+    widget.assistant.dispose();
     widget.session.dispose();
     super.dispose();
   }
 
   Future<void> _connectLiveBle() async {
-    await widget.session.replaceSource(BleTelemetrySource());
+    try {
+      if (!await BlePermissionService().requestScanAndConnect()) return;
+      await _monitoring.gateway.requestNotifications();
+      await _monitoring.start();
+      await widget.session.replaceSource(
+        BleTelemetrySource(permissionsAlreadyGranted: true),
+      );
+    } on Object catch (error) {
+      _monitoring.error = 'Could not start monitoring: $error';
+      await _monitoring.refresh();
+    }
   }
 
   Future<void> _returnToReplay() async {
+    await _monitoring.stop();
     final source = ReplayTelemetrySource();
     await widget.session.replaceSource(source, demoControls: source);
   }
@@ -123,6 +176,16 @@ class _SwasthyaShieldAppState extends State<SwasthyaShieldApp> {
         onContactsChanged: _persistContacts,
         onConnectLiveBle: _connectLiveBle,
         onReturnToReplay: _returnToReplay,
+        monitoring: _monitoring,
+        activityBuilder: (_) => ActivityScreen(monitoring: _monitoring),
+        settingsBuilder: (_) => MonitoringSettingsScreen(
+          monitoring: _monitoring,
+          onStop: () async {
+            await widget.session.stop();
+            await _monitoring.stop();
+          },
+          onStart: _connectLiveBle,
+        ),
       ),
     );
   }

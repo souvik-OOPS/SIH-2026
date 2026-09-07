@@ -5,7 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:swasthyashield_edge/core/ml/anomaly_detector.dart';
 import 'package:swasthyashield_edge/core/ml/anomaly_model.dart';
 import 'package:swasthyashield_edge/core/telemetry/telemetry_parser.dart';
-import 'package:swasthyashield_edge/core/telemetry/telemetry_source.dart';
 import 'package:swasthyashield_edge/core/models/telemetry_frame.dart';
 
 /// Runs the bundled demo scenarios through the on-device model and records how
@@ -66,7 +65,12 @@ void main() {
   test('demo scenarios: how the on-device model responds', () {
     // ignore: avoid_print
     print('\nOn-device model response to the bundled demo fixtures:');
-    for (final scenario in ['normal', 'heat_warning', 'fall_nonresponse', 'bad_signal']) {
+    for (final scenario in [
+      'normal',
+      'heat_warning',
+      'fall_nonresponse',
+      'bad_signal',
+    ]) {
       report(scenario, replay(scenario));
     }
     // ignore: avoid_print
@@ -75,13 +79,18 @@ void main() {
 
   test('a resting demo wearer is not called anomalous', () {
     final scores = replay('normal');
-    expect(scores, isNotEmpty, reason: 'the looped fixture should fill the window');
+    expect(
+      scores,
+      isNotEmpty,
+      reason: 'the looped fixture should fill the window',
+    );
 
     final flagged = scores.where((s) => s.ratio >= 1.6).length;
     expect(
       flagged,
       0,
-      reason: 'HR 71-73 with SpO2 98-99 is healthy; flagging it would be a false alarm',
+      reason:
+          'HR 71-73 with SpO2 98-99 is healthy; flagging it would be a false alarm',
     );
   });
 
@@ -130,14 +139,17 @@ void main() {
     final detector = AnomalyDetector.withModel(model);
 
     TelemetryFrame frameAt(int t, {required bool trusted, double hr = 72}) {
-      return TelemetryParser.tryParseMap({
-        'ts': 1788249600 + t,
-        'hr': hr,
-        'spo2': 98,
-        'q': trusted ? 96 : 8,
-        'contact': trusted ? 'finger' : 'no_finger',
-      }, sourceType: TelemetrySourceType.replay,
-         connectivity: TelemetryConnectivity.connected)!;
+      return TelemetryParser.tryParseMap(
+        {
+          'ts': 1788249600 + t,
+          'hr': hr,
+          'spo2': 98,
+          'q': trusted ? 96 : 8,
+          'contact': trusted ? 'finger' : 'no_finger',
+        },
+        sourceType: TelemetrySourceType.replay,
+        connectivity: TelemetryConnectivity.connected,
+      )!;
     }
 
     // Nearly fill the window on good contact.
@@ -153,8 +165,11 @@ void main() {
     // Contact returns at a very different heart rate. Without the reset this
     // would complete a window straddling the gap and score it as an anomaly.
     for (var i = 30; i < 59; i++) {
-      expect(detector.accept(frameAt(i, trusted: true, hr: 130)), isNull,
-          reason: 'the window must refill from scratch, not resume');
+      expect(
+        detector.accept(frameAt(i, trusted: true, hr: 130)),
+        isNull,
+        reason: 'the window must refill from scratch, not resume',
+      );
     }
     expect(detector.accept(frameAt(59, trusted: true, hr: 130)), isNotNull);
   });
@@ -165,7 +180,13 @@ void main() {
     final detector = AnomalyDetector.withModel(model);
     for (var i = 0; i < 60; i++) {
       final frame = TelemetryParser.tryParseMap(
-        {'ts': 1788249600 + i, 'hr': 72, 'spo2': 98, 'q': 10, 'contact': 'no_finger'},
+        {
+          'ts': 1788249600 + i,
+          'hr': 72,
+          'spo2': 98,
+          'q': 10,
+          'contact': 'no_finger',
+        },
         sourceType: TelemetrySourceType.replay,
         connectivity: TelemetryConnectivity.connected,
       );

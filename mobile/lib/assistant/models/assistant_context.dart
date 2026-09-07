@@ -84,6 +84,7 @@ class AssistantContext {
     this.sosPressed = false,
     this.telemetryAvailable = true,
     this.sourceType = 'unknown',
+    this.measuredAt,
   });
 
   /// No telemetry at all — BLE down, or nothing received yet.
@@ -104,7 +105,8 @@ class AssistantContext {
        dataIsStale = false,
        contactState = 'unknown',
        sosPressed = false,
-       telemetryAvailable = false;
+       telemetryAvailable = false,
+       measuredAt = null;
 
   final RiskLevel riskLevel;
   final double? heartRate;
@@ -139,11 +141,14 @@ class AssistantContext {
   final bool sosPressed;
   final bool telemetryAvailable;
   final String sourceType;
+  final DateTime? measuredAt;
 
   /// True when readings must be presented as untrustworthy.
   bool get readingsUnreliable =>
       !telemetryAvailable ||
       dataIsStale ||
+      connectivity == 'disconnected' ||
+      contactState == 'no_contact' ||
       signalQuality == 'poor' ||
       signalQuality == 'invalid';
 
@@ -193,6 +198,7 @@ class AssistantContext {
       'sensorContact: $contactState',
       'telemetryAvailable: $telemetryAvailable',
       'telemetrySource: $sourceType',
+      'receivedAt: ${measuredAt?.toIso8601String() ?? 'unavailable'}',
     ].join('\n');
   }
 

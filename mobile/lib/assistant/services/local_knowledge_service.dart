@@ -6,7 +6,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../models/assistant_context.dart';
 
-/// One approved entry. The assistant may quote these; it may not contradict
+/// One bundled reference entry. The assistant may quote these; it may not contradict
 /// them, and with no LLM the best match is returned verbatim.
 class KnowledgeEntry {
   const KnowledgeEntry({
@@ -17,6 +17,9 @@ class KnowledgeEntry {
     required this.answer,
     required this.category,
     required this.language,
+    this.sourceTitle,
+    this.sourceUrl,
+    this.reviewedAt,
   });
 
   final String id;
@@ -26,6 +29,9 @@ class KnowledgeEntry {
   final String answer;
   final String category;
   final String language;
+  final String? sourceTitle;
+  final String? sourceUrl;
+  final String? reviewedAt;
 
   static KnowledgeEntry? fromJson(Map<String, dynamic> json) {
     final id = json['id'];
@@ -44,6 +50,9 @@ class KnowledgeEntry {
       answer: answer,
       category: json['category'] as String? ?? 'general',
       language: json['language'] as String? ?? 'en',
+      sourceTitle: json['sourceTitle'] as String?,
+      sourceUrl: json['sourceUrl'] as String?,
+      reviewedAt: json['reviewedAt'] as String?,
     );
   }
 
@@ -53,13 +62,10 @@ class KnowledgeEntry {
 typedef KnowledgeLoader = Future<String> Function(String assetPath);
 typedef DatabaseOpener = Future<Database> Function();
 
-/// Lightweight offline retrieval backed by SQLite FTS.
-///
-/// The available FTS module genuinely varies: Android system SQLite ships
-/// FTS4 (and FTS5 on newer releases), while the desktop SQLite used by the
-/// test harness has FTS5 but no FTS4. So the module is probed at runtime
-/// rather than assumed, and if neither exists retrieval degrades to a LIKE
-/// scan instead of the assistant losing its knowledge base.
+/// Offline corpus with deterministic full-corpus ranking. SQLite maintains a
+/// searchable copy with the available FTS module, but platform-specific FTS
+/// ordering never decides the returned answer. Retrieval also works if SQLite
+/// is unavailable, as long as the bundled JSON loaded successfully.
 class LocalKnowledgeService {
   LocalKnowledgeService({
     KnowledgeLoader? loader,
@@ -78,12 +84,13 @@ class LocalKnowledgeService {
   String? _ftsModule;
   bool _loaded = false;
   int _entryCount = 0;
+  List<KnowledgeEntry> _entries = const [];
 
   bool get isLoaded => _loaded;
   int get entryCount => _entryCount;
   bool get usesFts => _ftsAvailable;
 
-  /// Which module backs retrieval: `fts5`, `fts4`, or null for a LIKE scan.
+  /// Available SQLite module: `fts5`, `fts4`, or null for a plain table.
   String? get ftsModule => _ftsModule;
 
   /// Never throws: a missing or corrupt corpus degrades to "no knowledge",
@@ -94,6 +101,8 @@ class LocalKnowledgeService {
     try {
       final entries = await _readCorpus();
       if (entries.isEmpty) return;
+      _entries = entries;
+      _entryCount = entries.length;
 
       final db = await _opener();
       _db = db;
@@ -126,7 +135,6 @@ class LocalKnowledgeService {
       _entryCount = entries.length;
     } on Object catch (error) {
       debugPrint('[assistant] knowledge load failed: $error');
-      _entryCount = 0;
     }
   }
 
@@ -161,7 +169,7 @@ class LocalKnowledgeService {
         // This build lacks the module; try the next one.
       }
     }
-    debugPrint('[assistant] no FTS module available, using LIKE scan');
+    debugPrint('[assistant] no FTS module available, using a plain table');
     _ftsAvailable = false;
     _ftsModule = null;
     await db.execute(
@@ -180,50 +188,38 @@ class LocalKnowledgeService {
     int limit = 3,
     AssistantLanguage language = AssistantLanguage.english,
   }) async {
-    final db = _db;
-    if (db == null || _entryCount == 0) return const [];
-
+    // Score the small bundled corpus identically on FTS4, FTS5, and phones
+    // without FTS. SQL LIMIT must never discard the best match before ranking.
+    if (_entries.isEmpty || limit <= 0) return const [];
     final terms = _terms(query);
     if (terms.isEmpty) return const [];
-
-    try {
-      final rows = _ftsAvailable
-          ? await db.query(
-              'knowledge',
-              where: 'knowledge MATCH ? AND language = ?',
-              whereArgs: [terms.map((t) => '$t*').join(' OR '), language.code],
-              limit: limit,
-            )
-          : await _likeSearch(db, terms, limit, language);
-      return rows
-          .map((row) => KnowledgeEntry.fromJson(Map<String, dynamic>.from(row)))
-          .whereType<KnowledgeEntry>()
-          .toList();
-    } on Object catch (error) {
-      debugPrint('[assistant] knowledge search failed: $error');
-      return const [];
+    String normalized(String value) => _split(value, const {}).join(' ');
+    final scored = <({KnowledgeEntry entry, double score})>[];
+    for (final entry in _entries.where((e) => e.language == language.code)) {
+      final exact = normalized(entry.question) == normalized(query);
+      final keywords = _terms('${entry.title} ${entry.keywords}').toSet();
+      final question = _terms(entry.question).toSet();
+      final hits = terms
+          .where((t) => keywords.contains(t) || question.contains(t))
+          .length;
+      if (!exact && (hits == 0 || hits / terms.length < 0.5)) continue;
+      final score = exact
+          ? 1000.0
+          : terms.fold<double>(
+                  0,
+                  (sum, term) =>
+                      sum +
+                      (keywords.contains(term) ? 4 : 0) +
+                      (question.contains(term) ? 2 : 0),
+                ) /
+                terms.length;
+      scored.add((entry: entry, score: score));
     }
-  }
-
-  Future<List<Map<String, Object?>>> _likeSearch(
-    Database db,
-    List<String> terms,
-    int limit,
-    AssistantLanguage language,
-  ) {
-    final clause = terms
-        .map((_) => '(keywords LIKE ? OR title LIKE ? OR question LIKE ?)')
-        .join(' OR ');
-    final args = <Object?>[
-      for (final term in terms) ...['%$term%', '%$term%', '%$term%'],
-      language.code,
-    ];
-    return db.query(
-      'knowledge',
-      where: '($clause) AND language = ?',
-      whereArgs: args,
-      limit: limit,
-    );
+    scored.sort((a, b) {
+      final order = b.score.compareTo(a.score);
+      return order == 0 ? a.entry.id.compareTo(b.entry.id) : order;
+    });
+    return scored.take(limit).map((r) => r.entry).toList();
   }
 
   /// Generic question verbs are dropped: without this, "Explain my current

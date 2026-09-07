@@ -28,6 +28,7 @@ class RiskEngine {
   DateTime? _stillSince;
   DateTime? _fallCheckInOpenedAt;
   bool _fallResolved = false;
+  bool _fallEscalated = false;
 
   void reset() {
     _restingHeartRate = null;
@@ -43,12 +44,50 @@ class RiskEngine {
     _stillSince = null;
     _fallCheckInOpenedAt = null;
     _fallResolved = false;
+    _fallEscalated = false;
   }
 
   /// Resolves a local fall check-in only after an explicit wearer action.
   void resolveFallCheckIn() {
     _fallResolved = true;
+    _fallEscalated = false;
     _fallCheckInOpenedAt = null;
+    _impactAt = null;
+    _stillSince = null;
+  }
+
+  /// Advances the check-in clock even if packets stop. Does not relearn a
+  /// baseline or treat an old reading as new physiological evidence.
+  SafetyAssessment? advanceFallTimeout(SafetyAssessment current, DateTime now) {
+    final opened = _fallCheckInOpenedAt;
+    if (_fallResolved ||
+        opened == null ||
+        current.fallState != FallWorkflowState.checkIn ||
+        now.difference(opened) < config.fall.checkInWindow) {
+      return null;
+    }
+    _fallEscalated = true;
+    return SafetyAssessment(
+      riskLevel: RiskLevel.critical,
+      score: current.score,
+      sensorTrust: current.sensorTrust,
+      fallState: FallWorkflowState.escalated,
+      fallDetected: true,
+      movementAfterFall: current.movementAfterFall,
+      reasons: [
+        ...current.reasons.where((r) => r != 'fall_check_in'),
+        'fall_no_response',
+      ],
+      explanations: [
+        const RiskReason(
+          code: 'fall_no_response',
+          detail: 'Fall check-in received no response.',
+        ),
+      ],
+      baselineHeartRate: current.baselineHeartRate,
+      baselineReady: current.baselineReady,
+      heatIndexC: current.heatIndexC,
+    );
   }
 
   SafetyAssessment assess(
@@ -218,7 +257,7 @@ class RiskEngine {
       sensorTrust: trust,
       fallState: fallState,
       fallDetected: fallActive,
-      movementAfterFall: fallActive ? _isStill(frame) : null,
+      movementAfterFall: fallActive ? !_isStill(frame) : null,
       reasons: explanations
           .map((reason) => reason.code)
           .toList(growable: false),
@@ -446,7 +485,18 @@ class RiskEngine {
   }
 
   FallWorkflowState _advanceFallWorkflow(TelemetryFrame frame, DateTime now) {
-    if (_fallResolved) return FallWorkflowState.monitoring;
+    if (_fallResolved) {
+      // Rearm after ordinary movement with the device fall flag cleared.
+      // Keeping still after confirming does not immediately retrigger it.
+      final magnitude = frame.accelerometerMagnitude;
+      if (frame.fallDetected != true &&
+          magnitude != null &&
+          !_isStill(frame) &&
+          magnitude < config.fall.impactAccelerationG) {
+        _fallResolved = false;
+      }
+      return FallWorkflowState.monitoring;
+    }
     if (frame.fallDetected == true) {
       _fallCheckInOpenedAt ??= now;
     } else if (_fallCheckInOpenedAt == null) {
@@ -474,7 +524,9 @@ class RiskEngine {
 
     final openedAt = _fallCheckInOpenedAt;
     if (openedAt == null) return FallWorkflowState.monitoring;
-    if (now.difference(openedAt) >= config.fall.checkInWindow) {
+    if (_fallEscalated ||
+        now.difference(openedAt) >= config.fall.checkInWindow) {
+      _fallEscalated = true;
       return FallWorkflowState.escalated;
     }
     return FallWorkflowState.checkIn;

@@ -2,105 +2,67 @@ package `in`.sih.swasthyashield.swasthyashield_edge
 
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.annotation.Keep
+import java.io.File
+import java.util.concurrent.Executors
 
-/**
- * The single seam where the Qualcomm on-device LLM runtime gets bound.
- *
- * ## Why this is not implemented yet
- *
- * Binding Qwen3-0.6B requires two things that cannot be satisfied from a
- * development machine alone:
- *
- *  1. The **QAIRT SDK** (v2.29.0+), downloaded from Qualcomm Software Center.
- *     It is account- and license-gated, so it cannot be vendored here.
- *  2. **Snapdragon hardware.** Qualcomm AI Engine Direct is NPU-only; the
- *     published guidance targets Snapdragon 8 Elite class parts (Hexagon v73+)
- *     on Android 15+. There is no emulator path — an x86_64 AVD cannot run it.
- *
- * Rather than ship a stub that pretends to generate text, [checkSupport]
- * reports honestly that the runtime is absent. The Dart layer treats that as
- * "engine unavailable" and falls back to the offline knowledge base, so the
- * assistant keeps working on every device while this remains unbound.
- *
- * ## Implementing it
- *
- * 1. Fetch the Qwen3-0.6B bundle from Qualcomm AI Hub for the exact target
- *    chipset and unpack it as a `genie_bundle` on the device.
- * 2. Add the QAIRT/GenieX runtime libraries to `android/app/src/main/jniLibs`
- *    and the AI Hub Kotlin dependency to `android/app/build.gradle.kts`.
- * 3. Replace [checkSupport] with a real capability probe and [create] with a
- *    real load, then implement [generate] against the streaming callback.
- * 4. Populate the benchmark map from measured values only. Never estimate.
- */
-class QwenRuntime private constructor(
-    val modelName: String,
-    val modelSizeBytes: Long,
-    val precision: String,
-    val backend: String,
-) {
+@Keep
+object NativeLlama {
+    val available: Boolean = try { System.loadLibrary("shield_llama"); true } catch (_: UnsatisfiedLinkError) { false }
+    external fun load(path: String): Long
+    external fun generate(handle: Long, prompt: ByteArray, maximum: Int): ByteArray
+    external fun cancel(handle: Long)
+    external fun close(handle: Long)
+    external fun metrics(handle: Long): DoubleArray
+    external fun description(handle: Long): String
+}
 
-    /**
-     * Streams a completion. [onToken] fires per token, [onDone] once with a
-     * benchmark map whose values must all be measured, never estimated.
-     */
-    fun generate(
-        systemPrompt: String,
-        prompt: String,
-        maxOutputTokens: Int,
-        onToken: (String) -> Unit,
-        onDone: (Map<String, Any?>) -> Unit,
-        onError: (String) -> Unit,
-    ) {
-        onError(
-            "The Qualcomm Qwen runtime is not bound in this build. " +
-                "See QwenRuntime for the steps.",
-        )
-    }
+/** Real local CPU inference. No network call or Qualcomm NPU requirement. */
+class QwenRuntime private constructor(private val handle: Long, val modelSizeBytes: Long) {
+    var initializationTimeMs = -1L
+    val modelName = NativeLlama.description(handle)
+    val precision = "GGUF · $modelName"
+    val backend = "llama.cpp CPU (2 threads)"
+    private val worker = Executors.newSingleThreadExecutor()
+    private val main = Handler(Looper.getMainLooper())
 
-    fun close() = Unit
-
-    /** Why the runtime can or cannot run here. */
-    data class Support(val supported: Boolean, val reason: String)
-
-    companion object {
-        /**
-         * Reports whether this device could host the runtime.
-         *
-         * The OS/ABI checks below are real and worth keeping once the runtime
-         * is bound — they are the cheap disqualifiers. The final check is the
-         * honest one: the runtime itself is not linked in yet.
-         */
-        fun checkSupport(context: Context): Support {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                return Support(
-                    false,
-                    "On-device Qwen needs a newer Android version than this device runs.",
-                )
-            }
-            val isArm = Build.SUPPORTED_ABIS.any { it.startsWith("arm64") }
-            if (!isArm) {
-                return Support(
-                    false,
-                    "On-device Qwen needs an arm64 Snapdragon device; this is ${Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"}.",
-                )
-            }
-            if (!Build.SOC_MANUFACTURER.contains("Qualcomm", ignoreCase = true)) {
-                return Support(
-                    false,
-                    "This device does not have a Qualcomm chipset, so the NPU runtime cannot run.",
-                )
-            }
-            return Support(
-                false,
-                "The Qualcomm QAIRT runtime is not bundled in this build, so Qwen3-0.6B cannot start. " +
-                    "The assistant is answering from its offline guide instead.",
-            )
+    fun generate(systemPrompt: String, prompt: String, maxOutputTokens: Int,
+        onToken: (String) -> Unit, onDone: (Map<String, Any>) -> Unit, onError: (String) -> Unit) {
+        worker.execute {
+            try {
+                Log.i("ShieldAI", "Local generation started")
+                val input = "<|im_start|>system\n$systemPrompt<|im_end|>\n<|im_start|>user\n$prompt\n/no_think<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+                val answer = NativeLlama.generate(handle, input.toByteArray(Charsets.UTF_8), maxOutputTokens).toString(Charsets.UTF_8)
+                val metrics = NativeLlama.metrics(handle)
+                Log.i("ShieldAI", "Local generation completed: ${metrics[2].toInt()} tokens in ${metrics[1].toLong()} ms")
+                main.post {
+                    onToken(answer)
+                    onDone(mapOf("modelName" to modelName, "modelSize" to modelSizeBytes,
+                        "precision" to precision, "runtimeBackend" to backend,
+                        "initializationTimeMs" to initializationTimeMs,
+                        "timeToFirstTokenMs" to metrics[0].toLong(),
+                        "tokensPerSecond" to if (metrics[1] > 0) metrics[2] * 1000 / metrics[1] else 0.0,
+                        "peakMemory" to metrics[3].toLong(), "device" to "${Build.MANUFACTURER} ${Build.MODEL}"))
+                }
+            } catch (error: Throwable) { main.post { onError(error.message ?: "Local generation failed") } }
         }
-
-        fun create(context: Context, modelId: String): QwenRuntime {
-            throw IllegalStateException(
-                "The Qualcomm QAIRT runtime is not bundled in this build.",
-            )
+    }
+    fun cancel() = NativeLlama.cancel(handle)
+    fun close() { cancel(); worker.execute { NativeLlama.close(handle) }; worker.shutdown() }
+    data class Support(val supported: Boolean, val reason: String)
+    companion object {
+        fun modelFile(context: Context) = File(context.filesDir, "qwen.gguf")
+        fun checkSupport(context: Context): Support {
+            if (!NativeLlama.available) return Support(false, "Local CPU runtime is not bundled. Build with the prepared llama.cpp source.")
+            if (!modelFile(context).isFile) return Support(false, "Import the Qwen GGUF model once in AI diagnostics. The offline guide works immediately.")
+            return Support(true, "Local model ready")
+        }
+        fun create(context: Context): QwenRuntime {
+            val file = modelFile(context)
+            return QwenRuntime(NativeLlama.load(file.absolutePath), file.length())
         }
     }
 }

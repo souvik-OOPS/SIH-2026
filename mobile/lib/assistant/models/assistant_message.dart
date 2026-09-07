@@ -14,6 +14,7 @@ class AssistantMessage {
     this.engineName,
     this.isError = false,
     this.knowledgeSourceIds = const [],
+    this.sources = const [],
   });
 
   factory AssistantMessage.user(String text, {DateTime? at}) =>
@@ -28,12 +29,14 @@ class AssistantMessage {
     String? engineName,
     DateTime? at,
     List<String> knowledgeSourceIds = const [],
+    List<String> sources = const [],
   }) => AssistantMessage(
     role: AssistantMessageRole.assistant,
     text: text,
     at: at ?? DateTime.now(),
     engineName: engineName,
     knowledgeSourceIds: knowledgeSourceIds,
+    sources: sources,
   );
 
   factory AssistantMessage.error(String text, {DateTime? at}) =>
@@ -50,6 +53,7 @@ class AssistantMessage {
   final String? engineName;
   final bool isError;
   final List<String> knowledgeSourceIds;
+  final List<String> sources;
 
   bool get isUser => role == AssistantMessageRole.user;
 

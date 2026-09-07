@@ -64,6 +64,25 @@ class AssistantMessageBubble extends StatelessWidget {
                   style: TextStyle(fontSize: 10, color: Color(0xFF91AAB5)),
                 ),
               ),
+            if (!isUser && !isStreaming && message.sources.isNotEmpty)
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                title: const Text(
+                  'Sources / स्रोत',
+                  style: TextStyle(fontSize: 12),
+                ),
+                children: message.sources
+                    .map(
+                      (source) => Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: SelectableText(
+                          source,
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
           ],
         ),
       ),
