@@ -31,8 +31,36 @@ constexpr uint8_t kMpuRegisterAccelerometerConfig = 0x1C;
 constexpr uint8_t kMpuRegisterAccelerometerXoutHigh = 0x3B;
 constexpr uint8_t kMpuRegisterPowerManagement1 = 0x6B;
 constexpr uint8_t kMpuRegisterWhoAmI = 0x75;
-constexpr float kMpuAccelerometerLsbPerG = 4096.0f;  // +/- 8 g
-constexpr float kMpuGyroscopeLsbPerDps = 65.5f;      // +/- 500 dps
+// Scale factors are read back from the part rather than assumed.
+//
+// These were constants matching the ranges beginMpu6050() asks for. When a
+// configuration write silently failed - as it did repeatedly on this wiring -
+// the chip stayed at its power-on default of +/- 2 g while the maths kept
+// dividing by the +/- 8 g factor, and a stationary board reported 4.17 g of
+// gravity. Wrong by exactly the ratio of the two ranges, which is the
+// signature of trusting a write instead of checking it.
+constexpr float kMpuAccelerometerLsbPerG = 4096.0f;  // +/- 8 g, the default ask
+constexpr float kMpuGyroscopeLsbPerDps = 65.5f;      // +/- 500 dps, the default ask
+
+/// LSB per g for the AFS_SEL bits actually present in ACCEL_CONFIG.
+float accelerometerLsbPerG(uint8_t accelConfig) {
+  switch ((accelConfig >> 3) & 0x03) {
+    case 0: return 16384.0f;  // +/- 2 g
+    case 1: return 8192.0f;   // +/- 4 g
+    case 2: return 4096.0f;   // +/- 8 g
+    default: return 2048.0f;  // +/- 16 g
+  }
+}
+
+/// LSB per degree/second for the FS_SEL bits actually present in GYRO_CONFIG.
+float gyroscopeLsbPerDps(uint8_t gyroConfig) {
+  switch ((gyroConfig >> 3) & 0x03) {
+    case 0: return 131.0f;   // +/- 250 dps
+    case 1: return 65.5f;    // +/- 500 dps
+    case 2: return 32.8f;    // +/- 1000 dps
+    default: return 16.4f;   // +/- 2000 dps
+  }
+}
 
 bool writeMpuRegister(uint8_t address, uint8_t registerAddress, uint8_t value) {
   Wire.beginTransmission(address);
@@ -206,9 +234,9 @@ float SensorNode::readGravityMagnitude(uint8_t address) {
   if (!readMpuRegisters(address, kMpuRegisterAccelerometerXoutHigh, raw, sizeof(raw))) {
     return NAN;
   }
-  const float x = signed16(raw[0], raw[1]) / kMpuAccelerometerLsbPerG;
-  const float y = signed16(raw[2], raw[3]) / kMpuAccelerometerLsbPerG;
-  const float z = signed16(raw[4], raw[5]) / kMpuAccelerometerLsbPerG;
+  const float x = signed16(raw[0], raw[1]) / _accelerometerLsbPerG;
+  const float y = signed16(raw[2], raw[3]) / _accelerometerLsbPerG;
+  const float z = signed16(raw[4], raw[5]) / _accelerometerLsbPerG;
   return sqrtf(x * x + y * y + z * z);
 }
 
@@ -252,6 +280,26 @@ void SensorNode::beginMpu6050() {
                     " - contact is intermittent, check its jumpers and supply\n", address);
       continue;
     }
+    // Read the ranges back rather than assuming the writes landed. On this
+    // wiring the configuration is accepted intermittently, and a part left at
+    // its power-on default while the maths uses the requested scale reports
+    // gravity as several g - a number that looks like violent motion from a
+    // board lying still.
+    uint8_t accelConfig = 0;
+    uint8_t gyroConfig = 0;
+    if (readMpuRegisters(address, kMpuRegisterAccelerometerConfig, &accelConfig, 1) &&
+        readMpuRegisters(address, kMpuRegisterGyroConfig, &gyroConfig, 1)) {
+      _accelerometerLsbPerG = accelerometerLsbPerG(accelConfig);
+      _gyroscopeLsbPerDps = gyroscopeLsbPerDps(gyroConfig);
+      Serial.printf(
+          "[sensor] IMU ranges in force: accel %.0f LSB/g, gyro %.1f LSB/dps"
+          " (ACCEL_CONFIG 0x%02X, GYRO_CONFIG 0x%02X)\n",
+          _accelerometerLsbPerG, _gyroscopeLsbPerDps, accelConfig, gyroConfig);
+    } else {
+      _accelerometerLsbPerG = kMpuAccelerometerLsbPerG;
+      _gyroscopeLsbPerDps = kMpuGyroscopeLsbPerDps;
+    }
+
     // A reset part needs time before its first conversion is meaningful, and
     // how much varies by clone. Poll rather than guess a single delay.
     float magnitude = NAN;
@@ -486,12 +534,12 @@ void SensorNode::updateMotion() {
     return;
   }
 
-  _accelerometerXG = signed16(rawValues[0], rawValues[1]) / kMpuAccelerometerLsbPerG;
-  _accelerometerYG = signed16(rawValues[2], rawValues[3]) / kMpuAccelerometerLsbPerG;
-  _accelerometerZG = signed16(rawValues[4], rawValues[5]) / kMpuAccelerometerLsbPerG;
-  _gyroscopeXDps = signed16(rawValues[8], rawValues[9]) / kMpuGyroscopeLsbPerDps;
-  _gyroscopeYDps = signed16(rawValues[10], rawValues[11]) / kMpuGyroscopeLsbPerDps;
-  _gyroscopeZDps = signed16(rawValues[12], rawValues[13]) / kMpuGyroscopeLsbPerDps;
+  _accelerometerXG = signed16(rawValues[0], rawValues[1]) / _accelerometerLsbPerG;
+  _accelerometerYG = signed16(rawValues[2], rawValues[3]) / _accelerometerLsbPerG;
+  _accelerometerZG = signed16(rawValues[4], rawValues[5]) / _accelerometerLsbPerG;
+  _gyroscopeXDps = signed16(rawValues[8], rawValues[9]) / _gyroscopeLsbPerDps;
+  _gyroscopeYDps = signed16(rawValues[10], rawValues[11]) / _gyroscopeLsbPerDps;
+  _gyroscopeZDps = signed16(rawValues[12], rawValues[13]) / _gyroscopeLsbPerDps;
 }
 
 void SensorNode::updateDht22() {
