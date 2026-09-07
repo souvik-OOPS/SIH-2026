@@ -5,11 +5,13 @@ import '../../assistant/screens/assistant_screen.dart';
 import '../../assistant/services/assistant_service.dart';
 import '../../core/escalation/escalation_service.dart';
 import '../../core/models/telemetry_frame.dart';
+import '../../core/models/vital_history.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/safety/safety_assessment.dart';
 import '../../core/telemetry/signal_quality.dart';
 import '../../core/telemetry/telemetry_source.dart';
 import '../escalation/emergency_contacts_sheet.dart';
+import 'heart_rate_chart.dart';
 import 'telemetry_session.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -584,6 +586,8 @@ class _DashboardBody extends StatelessWidget {
           label: 'HEART RATE',
           value: frame.heartRateBpm?.toStringAsFixed(0) ?? '—',
           unit: 'BPM',
+          trend: session.heartRateHistory,
+          trendColour: signalColour,
         ),
         const SizedBox(height: 12),
         GridView.count(
@@ -766,11 +770,19 @@ class _HeroVital extends StatelessWidget {
     required this.label,
     required this.value,
     required this.unit,
+    this.trend,
+    this.trendColour,
   });
 
   final String label;
   final String value;
   final String unit;
+
+  /// Optional trend drawn beneath the number. A single instantaneous value
+  /// says nothing about direction, which is most of what a reader wants from a
+  /// vital sign — whether it is climbing, settling, or holding steady.
+  final VitalHistory? trend;
+  final Color? trendColour;
 
   @override
   Widget build(BuildContext context) {
@@ -803,6 +815,13 @@ class _HeroVital extends StatelessWidget {
               ],
             ),
           ),
+          if (trend != null) ...[
+            const SizedBox(height: 6),
+            HeartRateChart(
+              history: trend!,
+              colour: trendColour ?? theme.colorScheme.primary,
+            ),
+          ],
         ],
       ),
     );

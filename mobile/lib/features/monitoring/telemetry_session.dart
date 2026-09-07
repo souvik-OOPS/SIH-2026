@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../core/models/telemetry_frame.dart';
+import '../../core/models/vital_history.dart';
 import '../../core/ml/anomaly_detector.dart';
 import '../../core/ml/anomaly_model.dart';
 import '../../core/safety/risk_engine.dart';
@@ -52,7 +53,13 @@ class TelemetrySession extends ChangeNotifier {
   SafetyAssessment? _safetyAssessment;
   AnomalyScore? _anomalyScore;
 
+  /// Rolling heart-rate trend for the dashboard chart.
+  final VitalHistory _heartRateHistory = VitalHistory();
+
   TelemetryFrame? get latestFrame => _latestFrame;
+
+  /// Heart-rate trend over roughly the last two minutes.
+  VitalHistory get heartRateHistory => _heartRateHistory;
 
   /// The learned model's latest opinion, or null when it has no model, has not
   /// filled its window yet, or the current frame carries no usable vitals.
@@ -152,6 +159,7 @@ class TelemetrySession extends ChangeNotifier {
     _riskEngine.reset();
     _anomalyDetector?.reset();
     _anomalyScore = null;
+    _heartRateHistory.clear();
     _error = null;
     _isRunning = false;
     _connectivity = TelemetryConnectivity.connecting;
@@ -181,6 +189,18 @@ class TelemetrySession extends ChangeNotifier {
     _connectivity = frame.connectivity;
     _isRunning = true;
     _isStale = false;
+    // Record the trend point before scoring. A reading the app would not show
+    // is stored as a gap rather than dropped: the chart breaks its line there,
+    // which says the device had nothing at that moment instead of drawing a
+    // confident stretch across it.
+    _heartRateHistory.add(
+      at: frame.timestamp,
+      bpm: frame.contactState == ContactState.noFinger ||
+              frame.signalQuality < HeuristicSignalQualityModel.fairConfidence
+          ? null
+          : frame.heartRateBpm,
+    );
+
     // Score before the rules run so the UI updates both from one frame.
     //
     // Assign unconditionally, including null. Keeping the last score when the
