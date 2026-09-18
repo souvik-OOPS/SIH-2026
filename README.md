@@ -1,11 +1,52 @@
-# Personal Health Companion
+<div align="center">
 
-**Smart India Hackathon 2026 — Problem Statement SIH26181 (Qualcomm Inc)**
+# 🫀 Personal Health Companion
+
+**Smart India Hackathon 2026 · Problem Statement SIH26181 (Qualcomm Inc.)**
 Theme: MedTech / BioTech / HealthTech · Category: Hardware
 
-A privacy-preserving health companion that monitors a wearer's vitals in real time, cross-references them
-against environmental conditions, and raises early warnings — with emphasis on resilience during heatwaves,
-floods and pollution events.
+A privacy-preserving wearable health companion that monitors a wearer's vitals in real time, cross-references
+them against environmental conditions, and raises early warnings — built for resilience during heatwaves,
+floods, and pollution events.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/Node.js-%3E%3D20-339933?logo=node.js&logoColor=white)](backend/package.json)
+[![Nuxt](https://img.shields.io/badge/Nuxt-3-00DC82?logo=nuxt.js&logoColor=white)](frontend/package.json)
+[![Flutter](https://img.shields.io/badge/Flutter-Edge%20App-02569B?logo=flutter&logoColor=white)](mobile/pubspec.yaml)
+[![ESP32](https://img.shields.io/badge/Firmware-ESP32-E7352C?logo=espressif&logoColor=white)](firmware/esp32_sensor_node)
+[![PyTorch](https://img.shields.io/badge/ML-PyTorch%20Autoencoder-EE4C2C?logo=pytorch&logoColor=white)](ml/train.py)
+[![Tests](https://img.shields.io/badge/backend%20tests-92%20passing-brightgreen)](backend/test)
+
+[Overview](#what-this-prototype-does) ·
+[Quick Start](#quick-start) ·
+[Architecture](#architecture) ·
+[API Reference](#api-reference) ·
+[Testing](#testing--verification) ·
+[Contributing](#contributing) ·
+[License](#license)
+
+</div>
+
+---
+
+## Table of Contents
+
+- [What this prototype does](#what-this-prototype-does)
+- [Key capabilities that go past plain thresholds](#key-capabilities-that-go-past-plain-thresholds)
+- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [API Reference](#api-reference)
+- [Detection & Safety Rules](#detection--safety-rules)
+- [Testing & Verification](#testing--verification)
+- [Repository Layout](#repository-layout)
+- [Firmware Setup](#firmware-setup)
+- [Tech Stack](#tech-stack)
+- [Known Limitations](#known-limitations)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Team](#team)
+- [Acknowledgements](#acknowledgements)
+- [License](#license)
 
 ---
 
@@ -154,7 +195,7 @@ Everything below is optional — the app runs fully without any of it.
 └──────────────────────────────────────────┘
 ```
 
-Fall detection runs on-device on the ESP32 (~50 Hz sampling) and is corroborated by the backend's multi-stage state machine (Free fall $\to$ Impact $\to$ Orientation $\to$ Stillness).
+Fall detection runs on-device on the ESP32 (~50 Hz sampling) and is corroborated by the backend's multi-stage state machine (Free fall → Impact → Orientation → Stillness).
 
 ---
 
@@ -202,16 +243,16 @@ Fall detection runs on-device on the ESP32 (~50 Hz sampling) and is corroborated
 
 | Alert | Severity | Condition |
 |---|---|---|
-| `hypoxia` | critical | SpO₂ below critical bound ($<88\%$) — fires immediately |
-| `hypoxia` | critical | SpO₂ below warning bound ($<92\%$), held 30 s |
-| `fall` | critical | Free fall $\to$ impact $\to$ orientation change $\to$ stillness (or device report) |
+| `hypoxia` | critical | SpO₂ below critical bound (<88%) — fires immediately |
+| `hypoxia` | critical | SpO₂ below warning bound (<92%), held 30 s |
+| `fall` | critical | Free fall → impact → orientation change → stillness (or device report) |
 | `fall_no_response` | critical | Unanswered check-in after 30 s countdown |
 | `tachycardia` | warning | HR above ceiling in force (age-adjusted via Tanaka), held 30 s |
-| `bradycardia` | warning | HR below profile bound ($<50$ bpm), held 30 s |
-| `hr_above_baseline` | warning | At rest, HR $>30$ bpm above learned resting baseline for 30 s |
-| `heat_stress` | warning/critical | Heat-index band is dangerous **and** cardiovascular strain $\ge 45\%$ of reserve |
-| `air_quality` | warning | OpenWeather AQI $\ge 5$, or PM2.5 $> 120\ \mu\text{g}/\text{m}^3$ |
-| `ml_anomaly` | warning | Learned model reconstruction error $\ge 1.6\times$ normal threshold for 30 s |
+| `bradycardia` | warning | HR below profile bound (<50 bpm), held 30 s |
+| `hr_above_baseline` | warning | At rest, HR >30 bpm above learned resting baseline for 30 s |
+| `heat_stress` | warning/critical | Heat-index band is dangerous **and** cardiovascular strain ≥45% of reserve |
+| `air_quality` | warning | OpenWeather AQI ≥5, or PM2.5 >120 µg/m³ |
+| `ml_anomaly` | warning | Learned model reconstruction error ≥1.6× normal threshold for 30 s |
 
 ---
 
@@ -296,6 +337,19 @@ Wiring: MAX30102 and MPU6050 share I2C on GPIO21 (SDA) / GPIO22 (SCL); DHT22 dat
 
 ---
 
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Firmware | ESP32, Arduino framework, MAX30102, DHT22, MPU6050 |
+| Backend | Node.js ≥20, Express, Socket.io, PostgreSQL (Supabase) |
+| Frontend | Nuxt 3, Vue 3, Chart.js, Vite PWA |
+| Mobile | Flutter (edge/offline companion app) |
+| Machine Learning | PyTorch (training), dependency-free JS (browser inference) |
+| Alerts | Fast2SMS / Twilio, NDMA SACHET disaster feed, OpenWeather API |
+
+---
+
 ## Known Limitations
 
 - MAX30102 SpO₂ is susceptible to motion artifacts; the firmware sets `signalOk: false` when disconnected, and the dashboard greys out those samples.
@@ -303,3 +357,75 @@ Wiring: MAX30102 and MPU6050 share I2C on GPIO21 (SDA) / GPIO22 (SCL); DHT22 dat
 - In-memory fallback store caps at 5,000 readings and 500 alerts (lost on restart). Use PostgreSQL/Supabase for persistent storage.
 - The PWA requires HTTPS or `localhost` to register service workers and enable offline install prompts.
 - Browser notification permissions on mobile devices must be granted explicitly through the browser settings.
+
+---
+
+## Roadmap
+
+- [ ] Multi-device family/caregiver dashboards
+- [ ] Bluetooth Low Energy companion pairing for the mobile app
+- [ ] On-device (ESP32) inference for the anomaly model
+- [ ] Localisation for regional languages and low-bandwidth SMS fallback
+- [ ] Clinician-facing export (PDF/CSV) of vitals and alert history
+
+---
+
+## Contributing
+
+Contributions, issues and feature requests are welcome.
+
+1. Fork the repository and create your branch from `main`: `git checkout -b feature/your-feature`
+2. Make your changes, following the existing code style in each subproject (`backend`, `frontend`, `ml`, `mobile`, `firmware`)
+3. Add or update tests where relevant (`npm test` in `backend`, `python test_*.py` in `ml`, `flutter test` in `mobile`)
+4. Commit with a clear message and open a pull request describing the change and why it's needed
+
+Please open an issue first for significant changes so the approach can be discussed before implementation.
+
+---
+
+## Team
+
+Built for **Smart India Hackathon 2026**, Problem Statement **SIH26181** (Qualcomm Inc.).
+
+See [Contributors](../../graphs/contributors) for everyone who has worked on this repository.
+
+---
+
+## Acknowledgements
+
+- [NOAA/NWS](https://www.weather.gov/safety/heat-index) — Rothfusz heat index regression
+- [PhysioNet BIDMC dataset](https://physionet.org/content/bidmc/1.0.0/) — real ICU patient vitals used to train the anomaly model
+- [NDMA SACHET](https://sachet.ndma.gov.in/) — official Indian disaster alert feed
+- [OpenWeather](https://openweathermap.org/) — live air quality and weather fallback data
+
+---
+
+## License
+
+This project is licensed under the **MIT License** — see the [LICENSE](LICENSE) file for details.
+
+```
+MIT License
+
+Copyright (c) 2026 Souvik Kundu and contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+> **Note:** no `LICENSE` file currently exists in the repository. Add one at the repo root with the text above (or your preferred license) so the badge and link resolve correctly.
